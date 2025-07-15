@@ -343,16 +343,17 @@ export const TimelineViewer: FC<TimelineViewerProps> = ({
       </div>
       {viewMode === 'frames' && activeScene && (
           <>
-            <div className="pointer-events-none absolute left-1/2 top-0 z-20 h-full w-0.5 -translate-x-1/2 transform">
-                <div className="absolute -top-1 left-1/2 h-2 w-2 -translate-x-1/2 rotate-45 bg-primary"></div>
-                <div className="h-full w-full bg-primary"></div>
+            {/* Neon green frame indicator with better spacing */}
+            <div className="pointer-events-none absolute left-1/2 top-2 z-20 h-[calc(100%-3rem)] w-1 -translate-x-1/2 transform">
+                <div className="absolute -top-2 left-1/2 h-3 w-3 -translate-x-1/2 rotate-45 bg-green-400 shadow-lg shadow-green-400/50"></div>
+                <div className="h-full w-full bg-green-400 shadow-lg shadow-green-400/30"></div>
             </div>
             <div className="pointer-events-none absolute left-1/2 top-0 z-20 h-full transform"
                 style={{
                     transform: `translateX(-50%)`
                 }}
             >
-                <div className="absolute -top-6 left-1/2 flex -translate-x-1/2 items-center justify-center rounded-md bg-primary px-2 py-1 text-xs font-bold text-primary-foreground">
+                <div className="absolute -top-8 left-1/2 flex -translate-x-1/2 items-center justify-center rounded-md bg-green-400 px-3 py-1.5 text-sm font-bold text-black shadow-lg shadow-green-400/30">
                     {currentFrameIndex}
                 </div>
             </div>
@@ -364,15 +365,15 @@ export const TimelineViewer: FC<TimelineViewerProps> = ({
         onWheel={handleWheel}
       >
         <div 
-          className="pt-8" 
+          className="pt-12 pb-4" 
           ref={scrollContainerRef} 
           onScroll={handleScroll}
         >
            {renderFrames()}
         </div>
         <ScrollBar orientation="horizontal" className="mt-4" />
-       </ScrollArea>
-        {viewMode === 'frames' && renderTimelineTicks()}
+      </ScrollArea>
+       {viewMode === 'frames' && renderTimelineTicks()}
     </div>
   );
 };
