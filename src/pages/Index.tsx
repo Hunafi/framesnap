@@ -44,31 +44,35 @@ const Index = () => {
     const url = URL.createObjectURL(file);
     setVideoUrl(url);
     setIsProcessing(true);
+    setScenes([]); // Clear previous scenes
+    setScreenshots([]); // Clear previous screenshots
+  }, [toast]);
 
-    const video = document.createElement('video');
-    video.src = url;
-    video.onloadedmetadata = () => {
-      setDuration(video.duration);
-      
-      // Show warnings for long videos
-      if (video.duration > 7200) { // 2 hours
-        toast({
-          title: "Video too long",
-          description: "Videos over 2 hours may cause browser performance issues. Please use a shorter video.",
-          variant: "destructive"
-        });
-        setIsProcessing(false);
-        return;
-      } else if (video.duration > 3600) { // 1 hour
-        toast({
-          title: "Performance warning",
-          description: "Videos over 1 hour may impact browser performance. Consider closing other tabs.",
-          variant: "destructive"
-        });
-      }
-      
-      generateScenes(video.duration);
-    };
+  // Handle when video metadata is loaded
+  const handleVideoLoaded = useCallback(() => {
+    if (!videoRef.current) return;
+    
+    const video = videoRef.current;
+    setDuration(video.duration);
+    
+    // Show warnings for long videos
+    if (video.duration > 7200) { // 2 hours
+      toast({
+        title: "Video too long",
+        description: "Videos over 2 hours may cause browser performance issues. Please use a shorter video.",
+        variant: "destructive"
+      });
+      setIsProcessing(false);
+      return;
+    } else if (video.duration > 3600) { // 1 hour
+      toast({
+        title: "Performance warning",
+        description: "Videos over 1 hour may impact browser performance. Consider closing other tabs.",
+        variant: "destructive"
+      });
+    }
+    
+    generateScenes(video.duration);
   }, [toast]);
 
   // Generate scene thumbnails
@@ -341,6 +345,7 @@ const Index = () => {
                     onTimeUpdate={(e) => setCurrentTime(e.currentTarget.currentTime)}
                     onPlay={() => setIsPlaying(true)}
                     onPause={() => setIsPlaying(false)}
+                    onLoadedMetadata={handleVideoLoaded}
                   />
                   
                   {/* Video Controls Overlay */}
