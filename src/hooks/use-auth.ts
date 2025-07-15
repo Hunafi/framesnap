@@ -20,23 +20,32 @@ export function useAuth() {
   useEffect(() => {
     // Set up auth state listener
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
-      async (event, session) => {
+      (event, session) => {
         setSession(session);
         setUser(session?.user ?? null);
         
         if (session?.user) {
-          // Fetch user profile
-          const { data: profileData } = await supabase
-            .from('profiles')
-            .select('*')
-            .eq('user_id', session.user.id)
-            .maybeSingle();
-          
-          setProfile(profileData);
+          // Defer profile fetch to avoid deadlock
+          setTimeout(() => {
+            supabase
+              .from('profiles')
+              .select('*')
+              .eq('user_id', session.user.id)
+              .maybeSingle()
+              .then(({ data: profileData, error }) => {
+                if (error) {
+                  console.error('Error fetching profile:', error);
+                  setProfile(null);
+                } else {
+                  setProfile(profileData);
+                }
+                setLoading(false);
+              });
+          }, 0);
         } else {
           setProfile(null);
+          setLoading(false);
         }
-        setLoading(false);
       }
     );
 
@@ -52,8 +61,13 @@ export function useAuth() {
           .select('*')
           .eq('user_id', session.user.id)
           .maybeSingle()
-          .then(({ data: profileData }) => {
-            setProfile(profileData);
+          .then(({ data: profileData, error }) => {
+            if (error) {
+              console.error('Error fetching profile:', error);
+              setProfile(null);
+            } else {
+              setProfile(profileData);
+            }
             setLoading(false);
           });
       } else {
