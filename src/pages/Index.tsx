@@ -1,4 +1,4 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import Draggable from 'react-draggable';
 import JSZip from 'jszip';
 import { saveAs } from 'file-saver';
@@ -11,6 +11,7 @@ const App: React.FC = () => {
   const [scenes, setScenes] = useState<{ start: number; end: number; thumbnail: string }[]>([]);
   const [currentTime, setCurrentTime] = useState<number>(0);
   const [screenshots, setScreenshots] = useState<{ dataUrl: string; timestamp: number }[]>([]);
+  const [error, setError] = useState<string>('');
   const [darkMode, setDarkMode] = useState(false);
   const videoRef = useRef<HTMLVideoElement>(null);
   const timelineRef = useRef<HTMLDivElement>(null);
@@ -23,20 +24,31 @@ const App: React.FC = () => {
       setVideoFile(file);
       const url = URL.createObjectURL(file);
       setVideoUrl(url);
-      const video = document.createElement('video');
-      video.src = url;
-      video.onloadedmetadata = () => {
-        setDuration(video.duration);
-        if (video.duration > 7200) {
-          alert('Error: Video exceeds 2-hour limit to prevent browser overload.');
-          return;
-        } else if (video.duration > 3600) {
-          alert('Warning: Videos over 1 hour may impact browser performance—close other tabs for best results.');
-        }
-        generateScenes(video.duration);
-      };
+      setScenes([]); // Reset scenes
+      setError(''); // Clear errors
     }
   };
+
+  // Effect to load metadata and generate scenes once video is ready
+  useEffect(() => {
+    const video = videoRef.current;
+    if (!video || !videoUrl) return;
+
+    const onLoadedMetadata = () => {
+      const dur = video.duration;
+      setDuration(dur);
+      if (dur > 7200) {
+        setError('Error: Video exceeds 2-hour limit to prevent browser overload.');
+        return;
+      } else if (dur > 3600) {
+        alert('Warning: Videos over 1 hour may impact browser performance—close other tabs for best results.');
+      }
+      generateScenes(dur).catch(err => setError(`Scene generation failed: ${err.message}`));
+    };
+
+    video.addEventListener('loadedmetadata', onLoadedMetadata);
+    return () => video.removeEventListener('loadedmetadata', onLoadedMetadata);
+  }, [videoUrl]);
 
   // Generate scenes and thumbnails locally (Canvas, base64)
   const generateScenes = async (dur: number) => {
@@ -45,22 +57,40 @@ const App: React.FC = () => {
     for (let i = 0; i < dur; i += chunkSize) {
       const start = i;
       const end = Math.min(i + chunkSize, dur);
-      const thumbnail = await generateThumbnail(start);
-      sceneList.push({ start, end, thumbnail });
+      try {
+        const thumbnail = await generateThumbnail(start);
+        sceneList.push({ start, end, thumbnail });
+        setScenes([...sceneList]); // Update progressively
+      } catch (err) {
+        console.error(`Thumbnail failed for ${start}: ${err}`);
+      }
     }
-    setScenes(sceneList);
   };
 
   // Generate thumbnail locally via Canvas (base64)
-  const generateThumbnail = async (time: number): Promise<string> => {
-    if (!videoRef.current) return '';
-    videoRef.current.currentTime = time;
-    await new Promise(resolve => setTimeout(resolve, 100));
-    const canvas = document.createElement('canvas');
-    canvas.width = videoRef.current.videoWidth / 4;
-    canvas.height = videoRef.current.videoHeight / 4;
-    canvas.getContext('2d')?.drawImage(videoRef.current, 0, 0, canvas.width, canvas.height);
-    return canvas.toDataURL('image/png');
+  const generateThumbnail = (time: number): Promise<string> => {
+    return new Promise((resolve, reject) => {
+      if (!videoRef.current) {
+        reject(new Error('Video not ready'));
+        return;
+      }
+      const video = videoRef.current;
+      const onSeeked = () => {
+        const canvas = document.createElement('canvas');
+        canvas.width = video.videoWidth / 4;
+        canvas.height = video.videoHeight / 4;
+        const ctx = canvas.getContext('2d');
+        if (ctx) {
+          ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+          resolve(canvas.toDataURL('image/png'));
+        } else {
+          reject(new Error('Canvas context failed'));
+        }
+        video.removeEventListener('seeked', onSeeked);
+      };
+      video.addEventListener('seeked', onSeeked);
+      video.currentTime = time;
+    });
   };
 
   // Timeline scroll sync
@@ -86,9 +116,12 @@ const App: React.FC = () => {
     const canvas = document.createElement('canvas');
     canvas.width = videoRef.current.videoWidth;
     canvas.height = videoRef.current.videoHeight;
-    canvas.getContext('2d')?.drawImage(videoRef.current, 0, 0, canvas.width, canvas.height);
-    const dataUrl = canvas.toDataURL('image/png');
-    setScreenshots([...screenshots, { dataUrl, timestamp: currentTime }]);
+    const ctx = canvas.getContext('2d');
+    if (ctx) {
+      ctx.drawImage(videoRef.current, 0, 0, canvas.width, canvas.height);
+      const dataUrl = canvas.toDataURL('image/png');
+      setScreenshots([...screenshots, { dataUrl, timestamp: currentTime }]);
+    }
   };
 
   // Download ZIP locally
@@ -111,6 +144,7 @@ const App: React.FC = () => {
     <div className={`min-h-screen bg-white dark:bg-gray-900 text-black dark:text-white ${darkMode ? 'dark' : ''}`}>
       <button onClick={() => setDarkMode(!darkMode)}>Toggle Dark Mode</button>
       <input type="file" accept="video/mp4,video/webm" onChange={handleUpload} />
+      {error && <p className="text-red-500">{error}</p>}
       {videoUrl && (
         <>
           <video ref={videoRef} src={videoUrl} className="w-full h-64" controls />
