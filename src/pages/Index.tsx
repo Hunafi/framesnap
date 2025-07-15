@@ -319,10 +319,10 @@ const Index = () => {
           <Card className="animate-pulse">
             <CardContent className="p-6">
               <div className="flex items-center gap-3 mb-3">
-                <RotateCcw className="w-5 h-5 animate-spin text-purple-500" />
+                <RotateCcw className="w-5 h-5 animate-spin-clockwise text-purple-500" />
                 <span className="font-medium">Processing video...</span>
               </div>
-              <Progress className="w-full" />
+              <Progress value={45} className="w-full" />
             </CardContent>
           </Card>
         )}
