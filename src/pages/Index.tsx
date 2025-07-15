@@ -110,6 +110,7 @@ const Index = () => {
     setIsProcessing(true);
     const sceneList = [];
     const chunkSize = 5; // 5-second segments for optimal performance
+    const totalChunks = Math.ceil(dur / chunkSize);
     
     try {
       for (let i = 0; i < dur; i += chunkSize) {
@@ -117,13 +118,19 @@ const Index = () => {
         const end = Math.min(i + chunkSize, dur);
         const thumbnail = await generateThumbnail(start);
         sceneList.push({ start, end, thumbnail });
+        
+        // Update progress
+        const progress = (sceneList.length / totalChunks) * 100;
+        console.log(`Processing: ${Math.round(progress)}% complete`);
       }
+      
       setScenes(sceneList);
       toast({
         title: "Video processed",
         description: `Generated ${sceneList.length} scene segments`,
       });
     } catch (error) {
+      console.error('Scene generation error:', error);
       toast({
         title: "Processing error",
         description: "Failed to process video scenes",
@@ -138,23 +145,35 @@ const Index = () => {
   const generateThumbnail = useCallback(async (time: number): Promise<string> => {
     if (!videoRef.current) return '';
     
-    return new Promise((resolve) => {
+    return new Promise((resolve, reject) => {
       const video = videoRef.current!;
-      video.currentTime = time;
       
       const onSeeked = () => {
-        const canvas = document.createElement('canvas');
-        canvas.width = 160; // Thumbnail size
-        canvas.height = 90;
-        const ctx = canvas.getContext('2d');
-        if (ctx) {
-          ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-          resolve(canvas.toDataURL('image/jpeg', 0.7));
+        try {
+          const canvas = document.createElement('canvas');
+          canvas.width = 160; // Thumbnail size
+          canvas.height = 90;
+          const ctx = canvas.getContext('2d');
+          if (ctx) {
+            ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+            resolve(canvas.toDataURL('image/jpeg', 0.7));
+          } else {
+            reject(new Error('Canvas context not available'));
+          }
+        } catch (error) {
+          reject(error);
         }
         video.removeEventListener('seeked', onSeeked);
       };
       
       video.addEventListener('seeked', onSeeked);
+      video.currentTime = time;
+      
+      // Timeout fallback
+      setTimeout(() => {
+        video.removeEventListener('seeked', onSeeked);
+        reject(new Error('Thumbnail generation timeout'));
+      }, 5000);
     });
   }, []);
 
@@ -358,10 +377,11 @@ const Index = () => {
           <Card className="animate-pulse">
             <CardContent className="p-6">
               <div className="flex items-center gap-3 mb-3">
-                <RotateCcw className="w-5 h-5 animate-spin text-purple-500" />
+                <RotateCcw className="w-5 h-5 animate-spin-clockwise text-purple-500" />
                 <span className="font-medium">Processing video...</span>
               </div>
-              <Progress className="w-full" />
+              <Progress className="w-full" value={50} />
+              <p className="text-sm text-muted-foreground mt-2">Extracting scene thumbnails...</p>
             </CardContent>
           </Card>
         )}
