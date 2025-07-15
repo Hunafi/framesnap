@@ -93,7 +93,7 @@ export default function Admin() {
           <span className="text-sm text-muted-foreground">
             {profile?.email}
           </span>
-          <Button variant="outline" size="sm" onClick={() => navigate('/')}>
+          <Button variant="outline" size="sm" onClick={() => navigate('/')} className="text-white">
             <ArrowLeft className="mr-2 h-4 w-4" />
             Back to App
           </Button>
