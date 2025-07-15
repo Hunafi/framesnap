@@ -51,23 +51,7 @@ const VideoFrameExtractor: React.FC = () => {
     if (videoRef.current) {
       const video = videoRef.current;
       
-      // Clear any existing event listeners
-      video.onloadedmetadata = null;
-      video.onerror = null;
-      
-      // Set up event handlers before setting src
-      video.onloadedmetadata = () => {
-        console.log('Video metadata loaded:', video.duration);
-        setVideoDuration(video.duration);
-        extractAllFrames();
-      };
-      
-      video.onerror = (e) => {
-        console.error('Video loading error:', e);
-        setIsProcessing(false);
-        alert('Error loading video. Please try a different file.');
-      };
-      
+      // Just set the source; event handlers are managed in an effect
       video.src = videoUrl;
       video.load(); // Force load the video
     }
