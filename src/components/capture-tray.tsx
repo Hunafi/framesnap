@@ -2,15 +2,15 @@
 
 import type { FC } from 'react';
 import { useState } from 'react';
-import { Download, Loader2, Trash2, X, Brain, Sparkles, Edit3, FileDown } from 'lucide-react';
+import { Download, Loader2, Trash2, X, Brain, Sparkles, Edit3, FileDown, Copy } from 'lucide-react';
 import JSZip from 'jszip';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
-import { Textarea } from '@/components/ui/textarea';
 import { Badge } from '@/components/ui/badge';
 import { useToast } from '@/hooks/use-toast';
 import { useAIAnalysis } from '@/hooks/use-ai-analysis';
+import { CopyableTextarea } from './copyable-textarea';
 import type { CapturedFrame } from './frameflow';
 
 
@@ -194,8 +194,8 @@ export const CaptureTray: FC<CaptureTrayProps> = ({ capturedFrames, onClear, onD
               <TableHeader>
                 <TableRow>
                   <TableHead className="w-32">Frame</TableHead>
-                  <TableHead>AI Description</TableHead>
-                  <TableHead>AI Prompt</TableHead>
+                  <TableHead className="w-1/2">AI Description</TableHead>
+                  <TableHead className="w-1/2">AI Prompt</TableHead>
                   <TableHead className="w-16">Actions</TableHead>
                 </TableRow>
               </TableHeader>
@@ -222,10 +222,9 @@ export const CaptureTray: FC<CaptureTrayProps> = ({ capturedFrames, onClear, onD
                             Analyzing...
                           </div>
                         ) : frame.aiDescription ? (
-                          <Textarea
+                          <CopyableTextarea
                             value={frame.aiDescription}
-                            onChange={(e) => handleTextEdit(frame.index, 'aiDescription', e.target.value)}
-                            className="min-h-16 text-sm"
+                            onChange={(value) => handleTextEdit(frame.index, 'aiDescription', value)}
                             placeholder="AI description will appear here..."
                           />
                         ) : (
@@ -251,10 +250,9 @@ export const CaptureTray: FC<CaptureTrayProps> = ({ capturedFrames, onClear, onD
                             Generating...
                           </div>
                         ) : frame.aiPrompt ? (
-                          <Textarea
+                          <CopyableTextarea
                             value={frame.aiPrompt}
-                            onChange={(e) => handleTextEdit(frame.index, 'aiPrompt', e.target.value)}
-                            className="min-h-16 text-sm"
+                            onChange={(value) => handleTextEdit(frame.index, 'aiPrompt', value)}
                             placeholder="AI prompt will appear here..."
                           />
                         ) : (
