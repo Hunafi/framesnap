@@ -365,13 +365,18 @@ export const TimelineViewer: FC<TimelineViewerProps> = ({
         onWheel={handleWheel}
       >
         <div 
-          className="pt-12 pb-4" 
+          className="pt-12 pb-8" 
           ref={scrollContainerRef} 
           onScroll={handleScroll}
         >
            {renderFrames()}
         </div>
-        <ScrollBar orientation="horizontal" className="mt-4" />
+        
+        {/* Custom neon green scroll bar with spacing */}
+        <ScrollBar 
+          orientation="horizontal" 
+          className="mt-6 h-3 bg-transparent [&>div]:bg-green-400 [&>div]:shadow-lg [&>div]:shadow-green-400/30 [&>div]:hover:bg-green-300 [&>div]:transition-colors [&>div]:h-2"
+        />
       </ScrollArea>
        {viewMode === 'frames' && renderTimelineTicks()}
     </div>
