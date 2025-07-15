@@ -18,6 +18,7 @@ const Index = () => {
   const [isPlaying, setIsPlaying] = useState<boolean>(false);
   const [darkMode, setDarkMode] = useState<boolean>(false);
   const [isProcessing, setIsProcessing] = useState<boolean>(false);
+  const [isDragOver, setIsDragOver] = useState<boolean>(false);
   const [wheelPosition, setWheelPosition] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
   
   const videoRef = useRef<HTMLVideoElement>(null);
@@ -74,6 +75,44 @@ const Index = () => {
     
     generateScenes(video.duration);
   }, [toast]);
+
+  // Handle drag and drop
+  const handleDrop = useCallback((e: React.DragEvent) => {
+    e.preventDefault();
+    setIsDragOver(false);
+    const files = e.dataTransfer.files;
+    if (files.length > 0) {
+      const file = files[0];
+      if (file.type.startsWith('video/')) {
+        setVideoFile(file);
+        const url = URL.createObjectURL(file);
+        setVideoUrl(url);
+        setIsProcessing(true);
+        setScenes([]);
+        setScreenshots([]);
+      } else {
+        toast({
+          title: "Invalid file type",
+          description: "Please drop a video file (MP4, WebM, etc.)",
+          variant: "destructive"
+        });
+      }
+    }
+  }, [toast]);
+
+  const handleDragOver = useCallback((e: React.DragEvent) => {
+    e.preventDefault();
+  }, []);
+
+  const handleDragEnter = useCallback((e: React.DragEvent) => {
+    e.preventDefault();
+    setIsDragOver(true);
+  }, []);
+
+  const handleDragLeave = useCallback((e: React.DragEvent) => {
+    e.preventDefault();
+    setIsDragOver(false);
+  }, []);
 
   // Generate scene thumbnails
   const generateScenes = useCallback(async (dur: number) => {
