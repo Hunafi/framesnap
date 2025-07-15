@@ -17,42 +17,47 @@ All colors MUST be HSL.
     --popover: 0 0% 100%;
     --popover-foreground: 222.2 84% 4.9%;
 
-    --primary: 222.2 47.4% 11.2%;
+    --primary: 262 83% 58%;
     --primary-foreground: 210 40% 98%;
 
-    --secondary: 210 40% 96.1%;
-    --secondary-foreground: 222.2 47.4% 11.2%;
+    --secondary: 270 60% 96%;
+    --secondary-foreground: 222.2 84% 4.9%;
 
-    --muted: 210 40% 96.1%;
+    --muted: 270 60% 96%;
     --muted-foreground: 215.4 16.3% 46.9%;
 
-    --accent: 210 40% 96.1%;
-    --accent-foreground: 222.2 47.4% 11.2%;
+    --accent: 270 60% 96%;
+    --accent-foreground: 222.2 84% 4.9%;
 
     --destructive: 0 84.2% 60.2%;
     --destructive-foreground: 210 40% 98%;
 
-    --border: 214.3 31.8% 91.4%;
-    --input: 214.3 31.8% 91.4%;
-    --ring: 222.2 84% 4.9%;
+    --border: 270 31.8% 91.4%;
+    --input: 270 31.8% 91.4%;
+    --ring: 262 83% 58%;
 
-    --radius: 0.5rem;
+    --radius: 0.75rem;
 
-    --sidebar-background: 0 0% 98%;
-
+    --sidebar-background: 270 60% 98%;
     --sidebar-foreground: 240 5.3% 26.1%;
-
-    --sidebar-primary: 240 5.9% 10%;
-
+    --sidebar-primary: 262 83% 58%;
     --sidebar-primary-foreground: 0 0% 98%;
-
-    --sidebar-accent: 240 4.8% 95.9%;
-
+    --sidebar-accent: 270 60% 95.9%;
     --sidebar-accent-foreground: 240 5.9% 10%;
-
-    --sidebar-border: 220 13% 91%;
-
-    --sidebar-ring: 217.2 91.2% 59.8%;
+    --sidebar-border: 270 13% 91%;
+    --sidebar-ring: 262 83% 58%;
+    
+    /* Purple/Lavender Design System */
+    --lavender-50: 270 100% 98%;
+    --lavender-100: 270 89% 94%;
+    --lavender-200: 270 89% 88%;
+    --lavender-300: 270 89% 82%;
+    --lavender-400: 270 89% 76%;
+    --lavender-500: 270 89% 70%;
+    --purple-gradient: linear-gradient(135deg, hsl(262 83% 58%), hsl(320 65% 52%));
+    --purple-gradient-soft: linear-gradient(135deg, hsl(270 100% 98%), hsl(270 89% 94%));
+    --shadow-purple: 0 25px 50px -12px hsl(262 83% 58% / 0.25);
+    --shadow-lavender: 0 10px 25px -3px hsl(270 89% 70% / 0.1);
   }
 
   .dark {
