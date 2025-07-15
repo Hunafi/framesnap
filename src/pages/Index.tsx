@@ -40,18 +40,17 @@ const VideoFrameExtractor: React.FC = () => {
       return;
     }
 
+    console.log('Video file uploaded:', file.name, file.size);
     setVideoFile(file);
     setFrames([]);
     setScenes([]);
     setCurrentFrameIndex(0);
+    setIsProcessing(true);
 
     const videoUrl = URL.createObjectURL(file);
     if (videoRef.current) {
       videoRef.current.src = videoUrl;
-      videoRef.current.onloadedmetadata = () => {
-        setVideoDuration(videoRef.current?.duration || 0);
-        extractAllFrames();
-      };
+      videoRef.current.load(); // Force load the video
     }
   }, []);
 
@@ -83,24 +82,32 @@ const VideoFrameExtractor: React.FC = () => {
   const extractAllFrames = useCallback(async () => {
     if (!videoRef.current || !canvasRef.current) return;
 
+    console.log('Starting frame extraction...');
     setIsProcessing(true);
     const video = videoRef.current;
     const canvas = canvasRef.current;
     const ctx = canvas.getContext('2d');
     
-    if (!ctx) return;
+    if (!ctx) {
+      console.error('Cannot get canvas context');
+      setIsProcessing(false);
+      return;
+    }
 
     const duration = video.duration;
-    const frameRate = 2; // Extract 2 frames per second for performance
+    console.log('Video duration:', duration);
+    const frameRate = 1; // Extract 1 frame per second for better performance
     const totalFrames = Math.floor(duration * frameRate);
     const extractedFrames: Frame[] = [];
 
     // Set canvas size
     canvas.width = video.videoWidth;
     canvas.height = video.videoHeight;
+    console.log('Canvas size:', canvas.width, 'x', canvas.height);
 
     for (let i = 0; i < totalFrames; i++) {
       const time = (i / frameRate);
+      console.log(`Extracting frame ${i + 1}/${totalFrames} at ${time}s`);
       
       // Seek to specific time
       video.currentTime = time;
@@ -128,13 +135,43 @@ const VideoFrameExtractor: React.FC = () => {
       });
     }
 
+    console.log('Frame extraction complete. Total frames:', extractedFrames.length);
+
     // Detect scenes
     const detectedScenes = detectScenes(extractedFrames);
+    console.log('Scene detection complete. Total scenes:', detectedScenes.length);
     
     setFrames(extractedFrames);
     setScenes(detectedScenes);
     setIsProcessing(false);
   }, []);
+
+  // Video metadata loading effect
+  useEffect(() => {
+    const video = videoRef.current;
+    if (!video || !videoFile) return;
+
+    const handleLoadedMetadata = () => {
+      console.log('Video metadata loaded:', video.duration);
+      setVideoDuration(video.duration);
+      extractAllFrames();
+    };
+
+    const handleError = (e: any) => {
+      console.error('Video loading error:', e);
+      setIsProcessing(false);
+      alert('Error loading video. Please try a different file.');
+    };
+
+    video.addEventListener('loadedmetadata', handleLoadedMetadata);
+    video.addEventListener('error', handleError);
+
+    return () => {
+      video.removeEventListener('loadedmetadata', handleLoadedMetadata);
+      video.removeEventListener('error', handleError);
+    };
+  }, [videoFile, extractAllFrames]);
+
 
   // Scene detection algorithm (simplified for performance)
   const detectScenes = (frames: Frame[]): Scene[] => {
