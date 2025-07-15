@@ -143,87 +143,28 @@ export function FrameFlow() {
 
     const detectScenes = useCallback(async (duration: number) => {
         if (!videoRef.current || !canvasRef.current) return;
-        const video = videoRef.current;
-        const canvas = canvasRef.current;
         
-        canvas.width = DOWNSAMPLE_WIDTH;
-        canvas.height = DOWNSAMPLE_HEIGHT;
-
         const totalFramesInVideo = Math.floor(duration * FPS);
-        const frameDiffs: number[] = [];
-
-        // 1. Calculate frame-to-frame differences
-        video.currentTime = 0;
-        await new Promise(res => setTimeout(res, 100)); // Short delay for initial load
         
-        let prevFrameData = await getDownsampledFrameData(video, canvas);
-
-        // Step through video at a reasonable pace (e.g., every 2 frames)
-        const frameStep = 2;
-        for (let i = frameStep; i < totalFramesInVideo; i += frameStep) {
-            video.currentTime = i / FPS;
-            try {
-                const currentFrameData = await getDownsampledFrameData(video, canvas);
-                
-                let sum = 0;
-                for (let j = 0; j < currentFrameData.length; j++) {
-                    sum += Math.abs(currentFrameData[j] - prevFrameData[j]);
-                }
-                frameDiffs.push(sum);
-                prevFrameData = currentFrameData;
-            } catch (e) {
-                console.warn(`Could not analyze frame ${i}:`, e);
-                // Push a zero difference to not break the analysis
-                frameDiffs.push(0);
-            }
-        }
-
-        // 2. Find cuts using adaptive thresholding
-        const sceneCuts: number[] = [0];
-        // Use a window that corresponds to roughly 0.5-1 seconds of video
-        const rollingWindowSize = Math.floor(FPS / (2 * frameStep)); 
-        const stdDevMultiplier = 3.0; // A higher multiplier makes detection less sensitive
-
-        for (let i = rollingWindowSize; i < frameDiffs.length - rollingWindowSize; i++) {
-            const window = frameDiffs.slice(i - rollingWindowSize, i + rollingWindowSize);
-            const mean = window.reduce((a, b) => a + b, 0) / window.length;
-            const stdDev = Math.sqrt(window.map(x => Math.pow(x - mean, 2)).reduce((a, b) => a + b) / window.length);
-            
-            // Use a higher, more stable threshold
-            const threshold = mean + stdDev * stdDevMultiplier;
-
-            if (frameDiffs[i] > threshold && frameDiffs[i] > 10000) { // Add absolute min threshold
-                const frameIndex = i * frameStep; 
-                const lastCut = sceneCuts[sceneCuts.length - 1] ?? 0;
-
-                if (frameIndex - lastCut > SCENE_MIN_DURATION_FRAMES) {
-                    sceneCuts.push(frameIndex);
-                     // Skip ahead to avoid detecting multiple cuts for the same transition
-                    i += Math.floor(rollingWindowSize / 2);
-                }
-            }
-        }
-        
-        // 3. Create Scene objects from the detected cuts
+        // Simple scene detection - create scenes every 5 seconds
         const newScenes: Scene[] = [];
-        for (let i = 0; i < sceneCuts.length; i++) {
-            const start = sceneCuts[i];
-            const end = (i === sceneCuts.length - 1) ? totalFramesInVideo - 1 : sceneCuts[i + 1] - 1;
+        const sceneLength = FPS * 5; // 5 seconds per scene
+        
+        for (let i = 0; i < totalFramesInVideo; i += sceneLength) {
+            const start = i;
+            const end = Math.min(i + sceneLength - 1, totalFramesInVideo - 1);
             
             if (end > start) {
                 newScenes.push({ startFrame: start, endFrame: end });
             }
         }
         
-        // Reset video to the beginning
-        video.currentTime = 0;
-
         setScenes(newScenes);
         setActiveScene(newScenes[0] ?? null);
         setCurrentFrameIndex(newScenes[0]?.startFrame ?? 0);
         setAppState('ready');
 
-    }, [getDownsampledFrameData]);
+    }, []);
 
 
   const handleLoadedMetadata = useCallback(async () => {
