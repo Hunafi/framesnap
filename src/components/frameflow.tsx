@@ -403,7 +403,6 @@ export function FrameFlow() {
               onFrameSelect={handleFrameSelect}
               onSceneSelect={handleSceneSelect}
               getFrameDataUrl={getFrameDataUrl}
-              videoAspectRatio={videoAspectRatio}
             />
 
             <CaptureTray 
