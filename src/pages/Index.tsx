@@ -19,18 +19,15 @@ const Index = () => {
   const [darkMode, setDarkMode] = useState<boolean>(false);
   const [isProcessing, setIsProcessing] = useState<boolean>(false);
   const [wheelPosition, setWheelPosition] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
+  const [isDragOver, setIsDragOver] = useState<boolean>(false);
   
   const videoRef = useRef<HTMLVideoElement>(null);
   const timelineRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const { toast } = useToast();
 
-  // Handle video upload with validation
-  const handleUpload = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-
-    // Validate file type
+  // Process uploaded file
+  const processFile = useCallback((file: File) => {
     if (!file.type.startsWith('video/')) {
       toast({
         title: "Invalid file type",
@@ -44,31 +41,66 @@ const Index = () => {
     const url = URL.createObjectURL(file);
     setVideoUrl(url);
     setIsProcessing(true);
+    
+    toast({
+      title: "Video uploaded",
+      description: "Processing video... Please wait.",
+    });
+  }, [toast]);
 
-    const video = document.createElement('video');
-    video.src = url;
-    video.onloadedmetadata = () => {
-      setDuration(video.duration);
-      
-      // Show warnings for long videos
-      if (video.duration > 7200) { // 2 hours
-        toast({
-          title: "Video too long",
-          description: "Videos over 2 hours may cause browser performance issues. Please use a shorter video.",
-          variant: "destructive"
-        });
-        setIsProcessing(false);
-        return;
-      } else if (video.duration > 3600) { // 1 hour
-        toast({
-          title: "Performance warning",
-          description: "Videos over 1 hour may impact browser performance. Consider closing other tabs.",
-          variant: "destructive"
-        });
-      }
-      
-      generateScenes(video.duration);
-    };
+  // Handle video upload with validation
+  const handleUpload = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    processFile(file);
+  }, [processFile]);
+
+  // Drag and drop handlers
+  const handleDragOver = useCallback((e: React.DragEvent) => {
+    e.preventDefault();
+    setIsDragOver(true);
+  }, []);
+
+  const handleDragLeave = useCallback((e: React.DragEvent) => {
+    e.preventDefault();
+    setIsDragOver(false);
+  }, []);
+
+  const handleDrop = useCallback((e: React.DragEvent) => {
+    e.preventDefault();
+    setIsDragOver(false);
+    
+    const files = Array.from(e.dataTransfer.files);
+    if (files.length > 0) {
+      processFile(files[0]);
+    }
+  }, [processFile]);
+
+  // Handle video metadata loaded
+  const handleVideoLoaded = useCallback(() => {
+    if (!videoRef.current) return;
+    
+    const video = videoRef.current;
+    setDuration(video.duration);
+    
+    // Show warnings for long videos
+    if (video.duration > 7200) { // 2 hours
+      toast({
+        title: "Video too long",
+        description: "Videos over 2 hours may cause browser performance issues. Please use a shorter video.",
+        variant: "destructive"
+      });
+      setIsProcessing(false);
+      return;
+    } else if (video.duration > 3600) { // 1 hour
+      toast({
+        title: "Performance warning",
+        description: "Videos over 1 hour may impact browser performance. Consider closing other tabs.",
+        variant: "destructive"
+      });
+    }
+    
+    generateScenes(video.duration);
   }, [toast]);
 
   // Generate scene thumbnails
@@ -285,7 +317,14 @@ const Index = () => {
       <div className="container mx-auto px-4 py-8 space-y-8">
         {/* Upload Section */}
         {!videoUrl && (
-          <Card className="border-dashed border-2 hover-scale animate-fade-in">
+          <Card 
+            className={`border-dashed border-2 hover-scale animate-fade-in transition-all ${
+              isDragOver ? 'border-purple-500 bg-purple-50 dark:bg-purple-950/20' : 'border-muted-foreground/25'
+            }`}
+            onDragOver={handleDragOver}
+            onDragLeave={handleDragLeave}
+            onDrop={handleDrop}
+          >
             <CardContent className="p-12 text-center">
               <div className="space-y-4">
                 <div className="mx-auto w-16 h-16 rounded-full bg-gradient-to-br from-purple-500 to-pink-500 flex items-center justify-center">
@@ -341,6 +380,7 @@ const Index = () => {
                     onTimeUpdate={(e) => setCurrentTime(e.currentTarget.currentTime)}
                     onPlay={() => setIsPlaying(true)}
                     onPause={() => setIsPlaying(false)}
+                    onLoadedMetadata={handleVideoLoaded}
                   />
                   
                   {/* Video Controls Overlay */}
