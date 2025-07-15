@@ -25,6 +25,7 @@ const VideoFrameExtractor: React.FC = () => {
   const [isProcessing, setIsProcessing] = useState(false);
   const [videoDuration, setVideoDuration] = useState(0);
   const [isPlaying, setIsPlaying] = useState(false);
+  const [isDragOver, setIsDragOver] = useState(false);
   
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -53,6 +54,30 @@ const VideoFrameExtractor: React.FC = () => {
       };
     }
   }, []);
+
+  // Drag and drop handlers
+  const handleDragOver = useCallback((e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragOver(true);
+  }, []);
+
+  const handleDragLeave = useCallback((e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragOver(false);
+  }, []);
+
+  const handleDrop = useCallback((e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragOver(false);
+    
+    const files = Array.from(e.dataTransfer.files);
+    if (files.length > 0) {
+      handleVideoUpload(files[0]);
+    }
+  }, [handleVideoUpload]);
 
   // Extract all frames and detect scenes
   const extractAllFrames = useCallback(async () => {
@@ -307,12 +332,19 @@ const VideoFrameExtractor: React.FC = () => {
             <h1 className="text-2xl font-bold text-center mb-6">Video Frame Extractor</h1>
             
             <div
-              className="border-2 border-dashed border-gray-600 rounded-lg p-8 text-center cursor-pointer hover:border-purple-500 transition-colors"
+              className={`border-2 border-dashed rounded-lg p-8 text-center cursor-pointer transition-colors ${
+                isDragOver 
+                  ? 'border-purple-500 bg-purple-500/10' 
+                  : 'border-gray-600 hover:border-purple-500'
+              }`}
               onClick={() => fileInputRef.current?.click()}
+              onDragOver={handleDragOver}
+              onDragLeave={handleDragLeave}
+              onDrop={handleDrop}
             >
               <Upload className="mx-auto h-12 w-12 text-gray-400 mb-4" />
               <p className="text-lg text-gray-300 mb-2">
-                Upload your video
+                {isDragOver ? 'Drop your video here!' : 'Upload your video'}
               </p>
               <p className="text-sm text-gray-500">
                 Supports MP4, MOV, AVI, WebM
