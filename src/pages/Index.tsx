@@ -1,7 +1,20 @@
 import { FrameFlow } from '@/components/frameflow';
-import { Target } from 'lucide-react';
+import { useAuth } from '@/hooks/use-auth';
+import { Button } from '@/components/ui/button';
+import { Target, Settings, Loader2 } from 'lucide-react';
+import { Link } from 'react-router-dom';
 
 export default function Home() {
+  const { user, profile, loading, signOut } = useAuth();
+
+  if (loading) {
+    return (
+      <div className="flex min-h-screen items-center justify-center">
+        <Loader2 className="h-8 w-8 animate-spin" />
+      </div>
+    );
+  }
+
   return (
     <div className="flex min-h-screen w-full flex-col bg-background text-foreground">
       <header className="sticky top-0 z-30 flex h-16 w-full items-center justify-between border-b border-border/40 bg-background/95 px-4 backdrop-blur supports-[backdrop-filter]:bg-background/60 sm:px-6">
@@ -10,6 +23,30 @@ export default function Home() {
           <h1 className="text-2xl font-bold tracking-tighter sm:text-3xl">
             Frame Sniper
           </h1>
+        </div>
+        <div className="flex items-center gap-4">
+          {user ? (
+            <>
+              <span className="text-sm text-muted-foreground">
+                {profile?.email}
+              </span>
+              {profile?.is_admin && (
+                <Button variant="outline" size="sm" asChild>
+                  <Link to="/admin">
+                    <Settings className="mr-2 h-4 w-4" />
+                    Admin
+                  </Link>
+                </Button>
+              )}
+              <Button variant="outline" size="sm" onClick={signOut}>
+                Sign Out
+              </Button>
+            </>
+          ) : (
+            <Button variant="outline" size="sm" asChild>
+              <Link to="/auth">Sign In</Link>
+            </Button>
+          )}
         </div>
       </header>
       <main className="flex flex-1 flex-col items-center justify-center p-2 sm:p-4 md:p-8">

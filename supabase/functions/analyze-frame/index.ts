@@ -1,7 +1,12 @@
 import "https://deno.land/x/xhr@0.1.0/mod.ts";
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
+import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.7.1';
 
 const openAIApiKey = Deno.env.get('OPENAI_API_KEY');
+const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
+const supabaseKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
+
+const supabase = createClient(supabaseUrl, supabaseKey);
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -23,6 +28,15 @@ serve(async (req) => {
 
     console.log('Analyzing frame with GPT-4o-mini');
 
+    // Fetch custom prompt from admin settings
+    const { data: settingData } = await supabase
+      .from('admin_settings')
+      .select('setting_value')
+      .eq('setting_key', 'analyze_frame_prompt')
+      .single();
+
+    const customPrompt = settingData?.setting_value || 'You are an expert video frame analyzer. Analyze the provided frame and describe what you see in 2-3 concise sentences. Focus on key visual elements, actions, objects, people, and scene context.';
+
     const response = await fetch('https://api.openai.com/v1/chat/completions', {
       method: 'POST',
       headers: {
@@ -34,7 +48,7 @@ serve(async (req) => {
         messages: [
           {
             role: 'system',
-            content: 'You are an expert video frame analyzer. Analyze the provided frame and describe what you see in 2-3 concise sentences. Focus on key visual elements, actions, objects, people, and scene context.'
+            content: customPrompt
           },
           {
             role: 'user',

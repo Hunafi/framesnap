@@ -1,7 +1,12 @@
 import "https://deno.land/x/xhr@0.1.0/mod.ts";
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
+import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.7.1';
 
 const openAIApiKey = Deno.env.get('OPENAI_API_KEY');
+const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
+const supabaseKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
+
+const supabase = createClient(supabaseUrl, supabaseKey);
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -23,8 +28,17 @@ serve(async (req) => {
 
     console.log('Generating AI prompt for frame');
 
-    const systemPrompt = customInstructions || 
-      'You are an expert at creating detailed AI image generation prompts. Based on the provided video frame, create a concise but detailed prompt that could be used to recreate this scene with AI image generation tools. Focus on visual elements, style, composition, lighting, and mood. Keep it under 100 words.';
+    // Fetch default prompt from admin settings
+    const { data: settingData } = await supabase
+      .from('admin_settings')
+      .select('setting_value')
+      .eq('setting_key', 'generate_prompt_default')
+      .single();
+
+    const defaultPrompt = settingData?.setting_value || 'You are an expert AI image generation prompt writer. Based on the provided image, create a detailed, creative prompt that could be used to generate a similar image with AI. Focus on visual style, composition, lighting, colors, mood, and specific details. Make the prompt descriptive and specific enough to recreate the essence of the image.';
+
+    // Use custom instructions if provided, otherwise use default from admin settings
+    const systemPrompt = customInstructions || defaultPrompt;
 
     const response = await fetch('https://api.openai.com/v1/chat/completions', {
       method: 'POST',
@@ -42,9 +56,9 @@ serve(async (req) => {
           {
             role: 'user',
             content: [
-              {
+               {
                 type: 'text',
-                text: 'Create an AI image generation prompt based on this frame:'
+                text: 'Create an AI image generation prompt based on this image:'
               },
               {
                 type: 'image_url',
