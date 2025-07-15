@@ -105,8 +105,13 @@ const Index = () => {
 
   // Generate scene thumbnails
   const generateScenes = useCallback(async (dur: number) => {
-    if (!videoRef.current) return;
+    if (!videoRef.current) {
+      console.log('No video ref available');
+      setIsProcessing(false);
+      return;
+    }
     
+    console.log('Starting scene generation for duration:', dur);
     setIsProcessing(true);
     const sceneList = [];
     const chunkSize = 5; // 5-second segments for optimal performance
@@ -116,17 +121,19 @@ const Index = () => {
       for (let i = 0; i < dur; i += chunkSize) {
         const start = i;
         const end = Math.min(i + chunkSize, dur);
-        const thumbnail = await generateThumbnail(start);
-        sceneList.push({ start, end, thumbnail });
+        console.log(`Generating thumbnail for ${start}s`);
         
-        // Update progress
-        const progress = (sceneList.length / totalChunks) * 100;
-        console.log(`Processing: ${Math.round(progress)}% complete`);
+        const thumbnail = await generateThumbnail(start);
+        if (thumbnail) {
+          sceneList.push({ start, end, thumbnail });
+          console.log(`Generated thumbnail ${sceneList.length}/${totalChunks}`);
+        }
       }
       
+      console.log('Scene generation complete:', sceneList.length);
       setScenes(sceneList);
       toast({
-        title: "Video processed",
+        title: "Video processed successfully",
         description: `Generated ${sceneList.length} scene segments`,
       });
     } catch (error) {
@@ -143,35 +150,57 @@ const Index = () => {
 
   // Generate thumbnail using canvas
   const generateThumbnail = useCallback(async (time: number): Promise<string> => {
-    if (!videoRef.current) return '';
+    if (!videoRef.current) {
+      console.log('No video ref for thumbnail');
+      return '';
+    }
+    
+    console.log(`Generating thumbnail at ${time}s`);
     
     return new Promise((resolve, reject) => {
       const video = videoRef.current!;
       
       const onSeeked = () => {
         try {
+          console.log(`Video seeked to ${video.currentTime}s`);
           const canvas = document.createElement('canvas');
-          canvas.width = 160; // Thumbnail size
+          canvas.width = 160;
           canvas.height = 90;
           const ctx = canvas.getContext('2d');
-          if (ctx) {
+          
+          if (ctx && video.videoWidth > 0 && video.videoHeight > 0) {
             ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-            resolve(canvas.toDataURL('image/jpeg', 0.7));
+            const dataUrl = canvas.toDataURL('image/jpeg', 0.7);
+            console.log('Thumbnail generated successfully');
+            resolve(dataUrl);
           } else {
+            console.error('Canvas context not available or video not ready');
             reject(new Error('Canvas context not available'));
           }
         } catch (error) {
+          console.error('Thumbnail generation error:', error);
           reject(error);
         }
         video.removeEventListener('seeked', onSeeked);
+        video.removeEventListener('error', onError);
+      };
+      
+      const onError = (error: Event) => {
+        console.error('Video seek error:', error);
+        video.removeEventListener('seeked', onSeeked);
+        video.removeEventListener('error', onError);
+        reject(new Error('Video seek failed'));
       };
       
       video.addEventListener('seeked', onSeeked);
+      video.addEventListener('error', onError);
       video.currentTime = time;
       
       // Timeout fallback
       setTimeout(() => {
         video.removeEventListener('seeked', onSeeked);
+        video.removeEventListener('error', onError);
+        console.error('Thumbnail generation timeout');
         reject(new Error('Thumbnail generation timeout'));
       }, 5000);
     });
@@ -377,7 +406,7 @@ const Index = () => {
           <Card className="animate-pulse">
             <CardContent className="p-6">
               <div className="flex items-center gap-3 mb-3">
-                <RotateCcw className="w-5 h-5 animate-spin-clockwise text-purple-500" />
+                <RotateCcw className="w-5 h-5 animate-spin text-purple-500" />
                 <span className="font-medium">Processing video...</span>
               </div>
               <Progress className="w-full" value={50} />
