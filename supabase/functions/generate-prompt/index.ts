@@ -20,7 +20,7 @@ serve(async (req) => {
   }
 
   try {
-    const { imageData, customInstructions } = await req.json();
+    const { imageData, imageDescription, customInstructions } = await req.json();
 
     if (!imageData) {
       throw new Error('Image data is required');
@@ -35,10 +35,48 @@ serve(async (req) => {
       .eq('setting_key', 'generate_prompt_default')
       .single();
 
-    const defaultPrompt = settingData?.setting_value || 'You are an expert AI image generation prompt writer. Based on the provided image, create a detailed, creative prompt that could be used to generate a similar image with AI. Focus on visual style, composition, lighting, colors, mood, and specific details. Make the prompt descriptive and specific enough to recreate the essence of the image.';
+    const defaultPrompt = settingData?.setting_value || 'You are an expert AI image generation prompt writer. Based on the provided image description, create a detailed, creative prompt that could be used to generate a similar image with AI. Focus on enhancing the visual style, composition, lighting, colors, mood, and specific details mentioned in the description. Make the prompt descriptive and specific enough to recreate the essence of the image.';
 
     // Use custom instructions if provided, otherwise use default from admin settings
     const systemPrompt = customInstructions || defaultPrompt;
+
+    // Build messages based on whether we have an image description
+    const messages = [
+      {
+        role: 'system',
+        content: `${systemPrompt}\n\nIMPORTANT: Return ONLY the enhanced prompt text without any headers, titles, or markdown formatting. Do not include phrases like "AI Image Generation Prompt:" or similar titles. Just provide the clean, descriptive prompt directly.`
+      }
+    ];
+
+    if (imageDescription) {
+      // If we have an image description, use it to create an enhanced prompt
+      messages.push({
+        role: 'user',
+        content: `Based on this detailed image description, create an enhanced AI image generation prompt that incorporates all the visual elements, camera angles, lighting conditions, moods, and styles mentioned:
+
+IMAGE DESCRIPTION:
+${imageDescription}
+
+Please create a detailed prompt that builds upon this description to generate a similar image.`
+      });
+    } else {
+      // Fallback to direct image analysis if no description is provided
+      messages.push({
+        role: 'user',
+        content: [
+          {
+            type: 'text',
+            text: 'Based on this image, create a detailed image generation prompt:'
+          },
+          {
+            type: 'image_url',
+            image_url: {
+              url: imageData
+            }
+          }
+        ]
+      });
+    }
 
     const response = await fetch('https://api.openai.com/v1/chat/completions', {
       method: 'POST',
@@ -48,27 +86,7 @@ serve(async (req) => {
       },
       body: JSON.stringify({
         model: 'gpt-4o-mini',
-        messages: [
-          {
-            role: 'system',
-            content: `${systemPrompt}\n\nIMPORTANT: Return ONLY the prompt text without any headers, titles, or markdown formatting. Do not include phrases like "AI Image Generation Prompt:" or similar titles. Just provide the clean, descriptive prompt directly.`
-          },
-          {
-            role: 'user',
-            content: [
-               {
-                type: 'text',
-                text: 'Based on this image, create a detailed image generation prompt:'
-              },
-              {
-                type: 'image_url',
-                image_url: {
-                  url: imageData
-                }
-              }
-            ]
-          }
-        ],
+        messages,
         max_tokens: 300,
         temperature: 0.7
       }),

@@ -3,7 +3,7 @@ import { supabase } from '@/integrations/supabase/client';
 
 export interface UseAIAnalysisReturn {
   analyzeFrame: (imageData: string) => Promise<string | null>;
-  generatePrompt: (imageData: string, customInstructions?: string) => Promise<string | null>;
+  generatePrompt: (imageData: string, imageDescription?: string, customInstructions?: string) => Promise<string | null>;
   isLoading: boolean;
   error: string | null;
 }
@@ -36,13 +36,13 @@ export function useAIAnalysis(): UseAIAnalysisReturn {
     }
   }, []);
 
-  const generatePrompt = useCallback(async (imageData: string, customInstructions?: string): Promise<string | null> => {
+  const generatePrompt = useCallback(async (imageData: string, imageDescription?: string, customInstructions?: string): Promise<string | null> => {
     setIsLoading(true);
     setError(null);
     
     try {
       const { data, error: functionError } = await supabase.functions.invoke('generate-prompt', {
-        body: { imageData, customInstructions }
+        body: { imageData, imageDescription, customInstructions }
       });
 
       if (functionError) {
