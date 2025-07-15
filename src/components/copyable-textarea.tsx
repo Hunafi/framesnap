@@ -57,7 +57,7 @@ export const CopyableTextarea: React.FC<CopyableTextareaProps> = ({
         onChange={(e) => onChange(e.target.value)}
         placeholder={placeholder}
         className={cn(
-          'min-h-[100px] max-h-[200px] resize-none overflow-hidden text-sm pr-12',
+          'min-h-[100px] resize-none overflow-hidden text-sm pr-12',
           className
         )}
         style={{ 

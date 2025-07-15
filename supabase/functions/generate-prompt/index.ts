@@ -51,14 +51,14 @@ serve(async (req) => {
         messages: [
           {
             role: 'system',
-            content: systemPrompt
+            content: `${systemPrompt}\n\nIMPORTANT: Return ONLY the prompt text without any headers, titles, or markdown formatting. Do not include phrases like "AI Image Generation Prompt:" or similar titles. Just provide the clean, descriptive prompt directly.`
           },
           {
             role: 'user',
             content: [
                {
                 type: 'text',
-                text: 'Create an AI image generation prompt based on this image:'
+                text: 'Based on this image, create a detailed image generation prompt:'
               },
               {
                 type: 'image_url',
@@ -69,7 +69,7 @@ serve(async (req) => {
             ]
           }
         ],
-        max_tokens: 200,
+        max_tokens: 300,
         temperature: 0.7
       }),
     });
@@ -80,7 +80,15 @@ serve(async (req) => {
     }
 
     const data = await response.json();
-    const prompt = data.choices[0].message.content;
+    let prompt = data.choices[0].message.content;
+
+    // Clean up any remaining formatting or headers
+    prompt = prompt
+      .replace(/^\*\*.*?\*\*:?\s*/gm, '') // Remove **Headers:** at start of lines
+      .replace(/^\*.*?\*:?\s*/gm, '')     // Remove *Headers:* at start of lines  
+      .replace(/^#+\s*/gm, '')            // Remove markdown headers
+      .replace(/^-\s*/gm, '')             // Remove bullet points
+      .trim();
 
     console.log('Prompt generation completed');
 
