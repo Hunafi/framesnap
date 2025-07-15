@@ -6,8 +6,8 @@ import { Label } from '@/components/ui/label';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { useToast } from '@/hooks/use-toast';
-import { Navigate } from 'react-router-dom';
-import { Target, Loader2, Save, AlertTriangle } from 'lucide-react';
+import { Navigate, useNavigate } from 'react-router-dom';
+import { Target, Loader2, Save, AlertTriangle, ArrowLeft } from 'lucide-react';
 import { CopyableTextarea } from '@/components/copyable-textarea';
 
 export default function Admin() {
@@ -17,6 +17,7 @@ export default function Admin() {
   const [generatePrompt, setGeneratePrompt] = useState('');
   const [saving, setSaving] = useState(false);
   const { toast } = useToast();
+  const navigate = useNavigate();
 
   // Redirect if not authenticated or not admin
   if (!authLoading && (!user || !profile?.is_admin)) {
@@ -92,6 +93,10 @@ export default function Admin() {
           <span className="text-sm text-muted-foreground">
             {profile?.email}
           </span>
+          <Button variant="outline" size="sm" onClick={() => navigate('/')}>
+            <ArrowLeft className="mr-2 h-4 w-4" />
+            Back to App
+          </Button>
           <Button variant="outline" size="sm" onClick={handleSignOut}>
             Sign Out
           </Button>
