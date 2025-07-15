@@ -18,7 +18,6 @@ const Index = () => {
   const [isPlaying, setIsPlaying] = useState<boolean>(false);
   const [darkMode, setDarkMode] = useState<boolean>(false);
   const [isProcessing, setIsProcessing] = useState<boolean>(false);
-  const [isDragOver, setIsDragOver] = useState<boolean>(false);
   const [wheelPosition, setWheelPosition] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
   
   const videoRef = useRef<HTMLVideoElement>(null);
@@ -35,7 +34,7 @@ const Index = () => {
     if (!file.type.startsWith('video/')) {
       toast({
         title: "Invalid file type",
-        description: "Please select a video file (MP4, WebM, etc.)",
+        description: "Please select a video file",
         variant: "destructive"
       });
       return;
@@ -45,74 +44,32 @@ const Index = () => {
     const url = URL.createObjectURL(file);
     setVideoUrl(url);
     setIsProcessing(true);
-    setScenes([]); // Clear previous scenes
-    setScreenshots([]); // Clear previous screenshots
-  }, [toast]);
 
-  // Handle when video metadata is loaded
-  const handleVideoLoaded = useCallback(() => {
-    if (!videoRef.current) return;
-    
-    const video = videoRef.current;
-    setDuration(video.duration);
-    
-    // Show warnings for long videos
-    if (video.duration > 7200) { // 2 hours
-      toast({
-        title: "Video too long",
-        description: "Videos over 2 hours may cause browser performance issues. Please use a shorter video.",
-        variant: "destructive"
-      });
-      setIsProcessing(false);
-      return;
-    } else if (video.duration > 3600) { // 1 hour
-      toast({
-        title: "Performance warning",
-        description: "Videos over 1 hour may impact browser performance. Consider closing other tabs.",
-        variant: "destructive"
-      });
-    }
-    
-    generateScenes(video.duration);
-  }, [toast]);
-
-  // Handle drag and drop
-  const handleDrop = useCallback((e: React.DragEvent) => {
-    e.preventDefault();
-    setIsDragOver(false);
-    const files = e.dataTransfer.files;
-    if (files.length > 0) {
-      const file = files[0];
-      if (file.type.startsWith('video/')) {
-        setVideoFile(file);
-        const url = URL.createObjectURL(file);
-        setVideoUrl(url);
-        setIsProcessing(true);
-        setScenes([]);
-        setScreenshots([]);
-      } else {
+    const video = document.createElement('video');
+    video.src = url;
+    video.onloadedmetadata = () => {
+      setDuration(video.duration);
+      
+      // Show warnings for long videos
+      if (video.duration > 7200) { // 2 hours
         toast({
-          title: "Invalid file type",
-          description: "Please drop a video file (MP4, WebM, etc.)",
+          title: "Video too long",
+          description: "Videos over 2 hours may cause browser performance issues. Please use a shorter video.",
+          variant: "destructive"
+        });
+        setIsProcessing(false);
+        return;
+      } else if (video.duration > 3600) { // 1 hour
+        toast({
+          title: "Performance warning",
+          description: "Videos over 1 hour may impact browser performance. Consider closing other tabs.",
           variant: "destructive"
         });
       }
-    }
+      
+      generateScenes(video.duration);
+    };
   }, [toast]);
-
-  const handleDragOver = useCallback((e: React.DragEvent) => {
-    e.preventDefault();
-  }, []);
-
-  const handleDragEnter = useCallback((e: React.DragEvent) => {
-    e.preventDefault();
-    setIsDragOver(true);
-  }, []);
-
-  const handleDragLeave = useCallback((e: React.DragEvent) => {
-    e.preventDefault();
-    setIsDragOver(false);
-  }, []);
 
   // Generate scene thumbnails
   const generateScenes = useCallback(async (dur: number) => {
@@ -362,10 +319,10 @@ const Index = () => {
           <Card className="animate-pulse">
             <CardContent className="p-6">
               <div className="flex items-center gap-3 mb-3">
-                <RotateCcw className="w-5 h-5 animate-spin-clockwise text-purple-500" />
+                <RotateCcw className="w-5 h-5 animate-spin text-purple-500" />
                 <span className="font-medium">Processing video...</span>
               </div>
-              <Progress value={45} className="w-full" />
+              <Progress className="w-full" />
             </CardContent>
           </Card>
         )}
@@ -384,7 +341,6 @@ const Index = () => {
                     onTimeUpdate={(e) => setCurrentTime(e.currentTarget.currentTime)}
                     onPlay={() => setIsPlaying(true)}
                     onPause={() => setIsPlaying(false)}
-                    onLoadedMetadata={handleVideoLoaded}
                   />
                   
                   {/* Video Controls Overlay */}
