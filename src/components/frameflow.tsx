@@ -44,6 +44,7 @@ export function FrameFlow() {
   const [videoUrl, setVideoUrl] = useState<string>('');
   const [videoDuration, setVideoDuration] = useState(0);
   const [totalFrames, setTotalFrames] = useState(0);
+  const [videoAspectRatio, setVideoAspectRatio] = useState(16/9); // Default to 16:9
   
   const [scenes, setScenes] = useState<Scene[]>([]);
   const [activeScene, setActiveScene] = useState<Scene | null>(null);
@@ -177,9 +178,18 @@ export function FrameFlow() {
   const handleLoadedMetadata = useCallback(async () => {
     if (videoRef.current) {
         const duration = videoRef.current.duration;
+        const videoWidth = videoRef.current.videoWidth;
+        const videoHeight = videoRef.current.videoHeight;
+        
         if (duration && isFinite(duration) && duration > 0) {
             setVideoDuration(duration);
             setTotalFrames(Math.floor(duration * FPS));
+            
+            // Calculate and store the video aspect ratio
+            if (videoWidth && videoHeight) {
+                setVideoAspectRatio(videoWidth / videoHeight);
+            }
+            
             setAppState('analyzing');
             await detectScenes(duration);
         } else {
@@ -393,6 +403,7 @@ export function FrameFlow() {
               onFrameSelect={handleFrameSelect}
               onSceneSelect={handleSceneSelect}
               getFrameDataUrl={getFrameDataUrl}
+              videoAspectRatio={videoAspectRatio}
             />
 
             <CaptureTray 
@@ -400,6 +411,7 @@ export function FrameFlow() {
               onClear={handleClearAll}
               onDelete={handleDeleteFrame}
               onUpdateFrame={handleUpdateFrame}
+              videoAspectRatio={videoAspectRatio}
             />
           </div>
         );

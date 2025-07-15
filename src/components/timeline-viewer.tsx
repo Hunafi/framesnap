@@ -8,6 +8,8 @@ import { Film, GanttChartSquare } from 'lucide-react';
 import { ScrollArea, ScrollBar } from '@/components/ui/scroll-area';
 import { Button } from './ui/button';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from './ui/tooltip';
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from './ui/dialog';
+import { AspectRatio } from './ui/aspect-ratio';
 
 export interface Scene {
   startFrame: number;
@@ -21,6 +23,7 @@ interface TimelineViewerProps {
   onFrameSelect: (index: number) => void;
   onSceneSelect: (scene: Scene) => void;
   getFrameDataUrl: (frameIndex: number, quality?: number) => Promise<string | null>;
+  videoAspectRatio?: number; // width/height ratio
 }
 
 const FRAME_WIDTH = 128;
@@ -37,11 +40,13 @@ export const TimelineViewer: FC<TimelineViewerProps> = ({
   onFrameSelect,
   onSceneSelect,
   getFrameDataUrl,
+  videoAspectRatio = 16/9, // Default to 16:9 if not provided
 }) => {
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const [frameCache, setFrameCache] = useState<Map<number, string>>(new Map());
   const [visibleRange, setVisibleRange] = useState({ start: 0, end: 0 });
   const [viewMode, setViewMode] = useState<'scenes' | 'frames'>('scenes');
+  const [selectedFrame, setSelectedFrame] = useState<{ frameIndex: number; dataUrl: string } | null>(null);
   
   const isAutoScrolling = useRef(false);
   const scrollTimeoutRef = useRef<NodeJS.Timeout | null>(null);
@@ -212,6 +217,10 @@ export const TimelineViewer: FC<TimelineViewerProps> = ({
     }
   };
 
+  const handleFrameClick = (frameIndex: number, dataUrl: string) => {
+    setSelectedFrame({ frameIndex, dataUrl });
+  };
+
   const renderTimelineTicks = () => {
       if (!activeScene) return null;
       const FPS = 30;
@@ -250,14 +259,22 @@ export const TimelineViewer: FC<TimelineViewerProps> = ({
                      activeScene === scene ? 'ring-2 ring-primary' : ''
                 )}>
                    {dataUrl ? (
-                    <img
-                        src={dataUrl}
-                        alt={`Scene ${i + 1}`}
-                        width={SCENE_WIDTH}
-                        height={SCENE_HEIGHT}
-                        className="aspect-video object-cover transition-transform group-hover:scale-105"
-                        data-ai-hint="video frame"
-                    />
+                    <div 
+                      className="relative w-[160px] h-[90px] cursor-pointer"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleFrameClick(scene.startFrame, dataUrl);
+                      }}
+                    >
+                      <AspectRatio ratio={videoAspectRatio} className="w-full h-full">
+                        <img
+                            src={dataUrl}
+                            alt={`Scene ${i + 1}`}
+                            className="w-full h-full object-cover transition-transform group-hover:scale-105 rounded-lg"
+                            data-ai-hint="video frame"
+                        />
+                      </AspectRatio>
+                    </div>
                     ) : (
                     <Skeleton className="h-[90px] w-[160px] rounded-md" />
                     )}
@@ -289,26 +306,34 @@ export const TimelineViewer: FC<TimelineViewerProps> = ({
                   style={{ left: `${(frameIndex - activeScene.startFrame) * FRAME_WIDTH}px` }}
                   onClick={() => onFrameSelect(frameIndex)}
                 >
-                  <div className="flex h-[90px] w-[128px] cursor-pointer flex-col items-center justify-center">
-                    {isVisible ? (
-                      dataUrl ? (
-                      <img
-                          src={dataUrl}
-                          alt={`Frame ${frameIndex}`}
-                          width={FRAME_WIDTH}
-                          height={FRAME_HEIGHT}
-                          className={cn(
-                              "rounded-md border-2 object-cover shadow-md transition-all duration-150",
-                              frameIndex === currentFrameIndex ? 'border-primary scale-105' : 'border-transparent hover:border-primary/50'
-                          )}
-                          data-ai-hint="video frame"
-                      />
-                      ) : (
-                      <Skeleton className="h-[72px] w-[128px] rounded-md" />
-                      )
-                    ) : (
-                       <div className="h-[72px] w-[128px] rounded-md bg-transparent" />
-                    )}
+                   <div className="flex h-[90px] w-[128px] cursor-pointer flex-col items-center justify-center">
+                     {isVisible ? (
+                       dataUrl ? (
+                       <div
+                         className="relative w-[128px] h-[72px]"
+                         onClick={(e) => {
+                           e.stopPropagation();
+                           handleFrameClick(frameIndex, dataUrl);
+                         }}
+                       >
+                         <AspectRatio ratio={videoAspectRatio} className="w-full h-full">
+                           <img
+                               src={dataUrl}
+                               alt={`Frame ${frameIndex}`}
+                               className={cn(
+                                   "w-full h-full object-cover rounded-md border-2 shadow-md transition-all duration-150",
+                                   frameIndex === currentFrameIndex ? 'border-primary scale-105' : 'border-transparent hover:border-primary/50'
+                               )}
+                               data-ai-hint="video frame"
+                           />
+                         </AspectRatio>
+                       </div>
+                       ) : (
+                       <Skeleton className="h-[72px] w-[128px] rounded-md" />
+                       )
+                     ) : (
+                        <div className="h-[72px] w-[128px] rounded-md bg-transparent" />
+                     )}
                   </div>
                 </div>
               );
@@ -371,8 +396,28 @@ export const TimelineViewer: FC<TimelineViewerProps> = ({
            {renderFrames()}
         </div>
         <ScrollBar orientation="horizontal" className="mt-4" />
-      </ScrollArea>
-       {viewMode === 'frames' && renderTimelineTicks()}
+       </ScrollArea>
+        {viewMode === 'frames' && renderTimelineTicks()}
+
+      {/* Frame Popup Dialog */}
+      <Dialog open={!!selectedFrame} onOpenChange={() => setSelectedFrame(null)}>
+        <DialogContent className="max-w-4xl w-full">
+          <DialogHeader>
+            <DialogTitle>Frame {selectedFrame?.frameIndex}</DialogTitle>
+          </DialogHeader>
+          {selectedFrame && (
+            <div className="flex justify-center">
+              <AspectRatio ratio={videoAspectRatio} className="max-w-full max-h-[70vh]">
+                <img
+                  src={selectedFrame.dataUrl}
+                  alt={`Frame ${selectedFrame.frameIndex}`}
+                  className="w-full h-full object-contain rounded-lg"
+                />
+              </AspectRatio>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
     </div>
   );
 };

@@ -11,6 +11,8 @@ import { Badge } from '@/components/ui/badge';
 import { useToast } from '@/hooks/use-toast';
 import { useAIAnalysis } from '@/hooks/use-ai-analysis';
 import { CopyableTextarea } from './copyable-textarea';
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from './ui/dialog';
+import { AspectRatio } from './ui/aspect-ratio';
 import type { CapturedFrame } from './frameflow';
 
 
@@ -19,11 +21,13 @@ interface CaptureTrayProps {
   onClear: () => void;
   onDelete: (frame: CapturedFrame) => void;
   onUpdateFrame: (frameIndex: number, updates: Partial<CapturedFrame>) => void;
+  videoAspectRatio?: number; // width/height ratio
 }
 
-export const CaptureTray: FC<CaptureTrayProps> = ({ capturedFrames, onClear, onDelete, onUpdateFrame }) => {
+export const CaptureTray: FC<CaptureTrayProps> = ({ capturedFrames, onClear, onDelete, onUpdateFrame, videoAspectRatio = 16/9 }) => {
   const [isZipping, setIsZipping] = useState(false);
   const [editingField, setEditingField] = useState<string | null>(null);
+  const [selectedFrame, setSelectedFrame] = useState<{ frameIndex: number; dataUrl: string } | null>(null);
   const { toast } = useToast();
   const { analyzeFrame, generatePrompt } = useAIAnalysis();
 
@@ -202,18 +206,25 @@ export const CaptureTray: FC<CaptureTrayProps> = ({ capturedFrames, onClear, onD
               <TableBody>
                 {capturedFrames.map((frame) => (
                   <TableRow key={frame.index}>
-                    <TableCell className="p-2">
-                      <div className="flex flex-col items-center gap-2">
-                        <img
-                          src={frame.dataUrl}
-                          alt={`Frame ${frame.index}`}
-                          className="aspect-video w-20 rounded object-cover shadow-sm"
-                        />
-                        <Badge variant="secondary" className="text-xs">
-                          #{frame.index}
-                        </Badge>
-                      </div>
-                    </TableCell>
+                     <TableCell className="p-2">
+                       <div className="flex flex-col items-center gap-2">
+                         <div 
+                           className="w-20 h-20 cursor-pointer"
+                           onClick={() => setSelectedFrame({ frameIndex: frame.index, dataUrl: frame.dataUrl })}
+                         >
+                           <AspectRatio ratio={videoAspectRatio} className="w-full h-full">
+                             <img
+                               src={frame.dataUrl}
+                               alt={`Frame ${frame.index}`}
+                               className="w-full h-full object-cover rounded shadow-sm hover:opacity-80 transition-opacity"
+                             />
+                           </AspectRatio>
+                         </div>
+                         <Badge variant="secondary" className="text-xs">
+                           #{frame.index}
+                         </Badge>
+                       </div>
+                     </TableCell>
                     <TableCell className="p-2">
                       <div className="space-y-2">
                         {frame.isAnalyzing ? (
@@ -291,6 +302,26 @@ export const CaptureTray: FC<CaptureTrayProps> = ({ capturedFrames, onClear, onD
           </div>
         )}
       </CardContent>
+
+      {/* Frame Popup Dialog */}
+      <Dialog open={!!selectedFrame} onOpenChange={() => setSelectedFrame(null)}>
+        <DialogContent className="max-w-4xl w-full">
+          <DialogHeader>
+            <DialogTitle>Frame {selectedFrame?.frameIndex}</DialogTitle>
+          </DialogHeader>
+          {selectedFrame && (
+            <div className="flex justify-center">
+              <AspectRatio ratio={videoAspectRatio} className="max-w-full max-h-[70vh]">
+                <img
+                  src={selectedFrame.dataUrl}
+                  alt={`Frame ${selectedFrame.frameIndex}`}
+                  className="w-full h-full object-contain rounded-lg"
+                />
+              </AspectRatio>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
     </Card>
   );
 };
