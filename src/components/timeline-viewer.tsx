@@ -103,12 +103,13 @@ export const TimelineViewer: FC<TimelineViewerProps> = ({
   
   // Initial visible range calculation
   useEffect(() => {
-    // Also clear cache when scenes change
     setFrameCache(new Map());
-    if (viewMode === 'frames') {
-      updateVisibleRange();
+    if (viewMode === 'frames' && activeScene) {
+      // Initially show all frames or a reasonable range
+      const totalFrames = activeScene.endFrame - activeScene.startFrame + 1;
+      setVisibleRange({ start: 0, end: Math.min(totalFrames - 1, 20) }); // Show first 20 frames initially
     }
-  }, [activeScene, viewMode, updateVisibleRange]);
+  }, [activeScene, viewMode]);
 
   const visibleFrames = useMemo(() => {
      if (viewMode === 'frames') {
@@ -362,7 +363,11 @@ export const TimelineViewer: FC<TimelineViewerProps> = ({
         className="w-full"
         onWheel={handleWheel}
       >
-        <div className="pt-8" ref={viewMode === 'frames' ? null : scrollContainerRef} onScroll={handleScroll}>
+        <div 
+          className="pt-8" 
+          ref={scrollContainerRef} 
+          onScroll={handleScroll}
+        >
            {renderFrames()}
         </div>
         <ScrollBar orientation="horizontal" className="mt-4" />
