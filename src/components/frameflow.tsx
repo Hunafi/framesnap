@@ -28,7 +28,14 @@ const DOWNSAMPLE_HEIGHT = 9;
 
 
 type AppState = 'idle' | 'loading' | 'analyzing' | 'ready' | 'error';
-export type CapturedFrame = { index: number; dataUrl: string };
+export interface CapturedFrame {
+  index: number;
+  dataUrl: string;
+  aiDescription?: string;
+  aiPrompt?: string;
+  isAnalyzing?: boolean;
+  isGeneratingPrompt?: boolean;
+}
 type DialogState = 'none' | 'deleteFrame' | 'clearAll';
 
 export function FrameFlow() {
@@ -247,6 +254,16 @@ export function FrameFlow() {
     }
   };
 
+  const handleUpdateFrame = (frameIndex: number, updates: Partial<CapturedFrame>) => {
+    setCapturedFrames(prev => 
+      prev.map(frame => 
+        frame.index === frameIndex 
+          ? { ...frame, ...updates }
+          : frame
+      )
+    );
+  };
+
   const handleDeleteFrame = (frame: CapturedFrame) => {
     setItemToDelete(frame);
     setDialogState('deleteFrame');
@@ -382,6 +399,7 @@ export function FrameFlow() {
               capturedFrames={capturedFrames} 
               onClear={handleClearAll}
               onDelete={handleDeleteFrame}
+              onUpdateFrame={handleUpdateFrame}
             />
           </div>
         );

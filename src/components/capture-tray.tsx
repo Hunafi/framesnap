@@ -2,12 +2,15 @@
 
 import type { FC } from 'react';
 import { useState } from 'react';
-import { Download, Loader2, Trash2, X } from 'lucide-react';
+import { Download, Loader2, Trash2, X, Brain, Sparkles, Edit3, FileDown } from 'lucide-react';
 import JSZip from 'jszip';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { ScrollArea, ScrollBar } from '@/components/ui/scroll-area';
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
+import { Textarea } from '@/components/ui/textarea';
+import { Badge } from '@/components/ui/badge';
 import { useToast } from '@/hooks/use-toast';
+import { useAIAnalysis } from '@/hooks/use-ai-analysis';
 import type { CapturedFrame } from './frameflow';
 
 
@@ -15,11 +18,78 @@ interface CaptureTrayProps {
   capturedFrames: CapturedFrame[];
   onClear: () => void;
   onDelete: (frame: CapturedFrame) => void;
+  onUpdateFrame: (frameIndex: number, updates: Partial<CapturedFrame>) => void;
 }
 
-export const CaptureTray: FC<CaptureTrayProps> = ({ capturedFrames, onClear, onDelete }) => {
+export const CaptureTray: FC<CaptureTrayProps> = ({ capturedFrames, onClear, onDelete, onUpdateFrame }) => {
   const [isZipping, setIsZipping] = useState(false);
+  const [editingField, setEditingField] = useState<string | null>(null);
   const { toast } = useToast();
+  const { analyzeFrame, generatePrompt } = useAIAnalysis();
+
+  const handleAnalyzeFrame = async (frame: CapturedFrame) => {
+    onUpdateFrame(frame.index, { isAnalyzing: true });
+    
+    try {
+      const description = await analyzeFrame(frame.dataUrl);
+      if (description) {
+        onUpdateFrame(frame.index, { 
+          aiDescription: description, 
+          isAnalyzing: false 
+        });
+        toast({ title: 'Frame analyzed successfully!' });
+      }
+    } catch (error) {
+      onUpdateFrame(frame.index, { isAnalyzing: false });
+      toast({
+        title: 'Analysis Failed',
+        description: 'Could not analyze the frame. Please try again.',
+        variant: 'destructive',
+      });
+    }
+  };
+
+  const handleGeneratePrompt = async (frame: CapturedFrame) => {
+    onUpdateFrame(frame.index, { isGeneratingPrompt: true });
+    
+    try {
+      const prompt = await generatePrompt(frame.dataUrl);
+      if (prompt) {
+        onUpdateFrame(frame.index, { 
+          aiPrompt: prompt, 
+          isGeneratingPrompt: false 
+        });
+        toast({ title: 'AI prompt generated successfully!' });
+      }
+    } catch (error) {
+      onUpdateFrame(frame.index, { isGeneratingPrompt: false });
+      toast({
+        title: 'Prompt Generation Failed',
+        description: 'Could not generate AI prompt. Please try again.',
+        variant: 'destructive',
+      });
+    }
+  };
+
+  const handleAnalyzeAll = async () => {
+    const framesToAnalyze = capturedFrames.filter(f => !f.aiDescription && !f.isAnalyzing);
+    
+    for (const frame of framesToAnalyze) {
+      await handleAnalyzeFrame(frame);
+      // Small delay to avoid rate limiting
+      await new Promise(resolve => setTimeout(resolve, 1000));
+    }
+  };
+
+  const handleGenerateAllPrompts = async () => {
+    const framesToProcess = capturedFrames.filter(f => !f.aiPrompt && !f.isGeneratingPrompt);
+    
+    for (const frame of framesToProcess) {
+      await handleGeneratePrompt(frame);
+      // Small delay to avoid rate limiting
+      await new Promise(resolve => setTimeout(resolve, 1000));
+    }
+  };
 
   const handleDownload = async () => {
     if (capturedFrames.length === 0) {
@@ -33,87 +103,195 @@ export const CaptureTray: FC<CaptureTrayProps> = ({ capturedFrames, onClear, onD
     setIsZipping(true);
     try {
       const zip = new JSZip();
+      
+      // Add images
       for (const frame of capturedFrames) {
         const response = await fetch(frame.dataUrl);
         const blob = await response.blob();
         zip.file(`frame_${frame.index}.jpg`, blob, { binary: true });
       }
+      
+      // Add CSV with AI data
+      const csvData = [
+        ['Frame', 'AI Description', 'AI Prompt'],
+        ...capturedFrames.map(frame => [
+          frame.index.toString(),
+          frame.aiDescription || '',
+          frame.aiPrompt || ''
+        ])
+      ];
+      const csvContent = csvData.map(row => row.map(cell => `"${cell}"`).join(',')).join('\n');
+      zip.file('frame_analysis.csv', csvContent);
+      
+      // Add JSON metadata
+      const metadata = {
+        exportDate: new Date().toISOString(),
+        totalFrames: capturedFrames.length,
+        framesWithAI: capturedFrames.filter(f => f.aiDescription || f.aiPrompt).length,
+        frames: capturedFrames.map(frame => ({
+          index: frame.index,
+          aiDescription: frame.aiDescription,
+          aiPrompt: frame.aiPrompt
+        }))
+      };
+      zip.file('metadata.json', JSON.stringify(metadata, null, 2));
+      
       const content = await zip.generateAsync({ type: 'blob' });
       const url = URL.createObjectURL(content);
       const a = document.createElement('a');
       a.href = url;
-      a.download = 'FrameSniper_captures.zip';
+      a.download = 'FrameSniper_AI_Export.zip';
       document.body.appendChild(a);
       a.click();
       document.body.removeChild(a);
       URL.revokeObjectURL(url);
     } catch (error) {
-      console.error('Error zipping files:', error);
+      console.error('Error creating export:', error);
       toast({
-        title: 'Error',
-        description: 'Could not create the ZIP file. Please try again.',
+        title: 'Export Failed',
+        description: 'Could not create the export file. Please try again.',
         variant: 'destructive',
       });
     }
     setIsZipping(false);
   };
 
+  const handleTextEdit = (frameIndex: number, field: 'aiDescription' | 'aiPrompt', value: string) => {
+    onUpdateFrame(frameIndex, { [field]: value });
+  };
+
   return (
     <Card className="w-full bg-card/95 mt-4">
       <CardHeader className="flex flex-row items-center justify-between gap-4">
-        <CardTitle>Captured Frames ({capturedFrames.length})</CardTitle>
-        <div className="flex flex-shrink-0 items-center gap-2">
-            <Button variant="outline" size="sm" onClick={onClear} disabled={capturedFrames.length === 0}>
-              <Trash2 className="mr-2 h-4 w-4" />
-              Clear All
-            </Button>
-            <Button onClick={handleDownload} disabled={isZipping || capturedFrames.length === 0} size="sm">
-                {isZipping ? (
-                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                ) : (
-                <Download className="mr-2 h-4 w-4" />
-                )}
-                Download ZIP
-            </Button>
+        <CardTitle>AI Frame Analysis ({capturedFrames.length} frames)</CardTitle>
+        <div className="flex flex-wrap items-center gap-2">
+          <Button variant="outline" size="sm" onClick={handleAnalyzeAll} disabled={capturedFrames.length === 0}>
+            <Brain className="mr-2 h-4 w-4" />
+            Analyze All
+          </Button>
+          <Button variant="outline" size="sm" onClick={handleGenerateAllPrompts} disabled={capturedFrames.length === 0}>
+            <Sparkles className="mr-2 h-4 w-4" />
+            Generate All Prompts
+          </Button>
+          <Button variant="outline" size="sm" onClick={onClear} disabled={capturedFrames.length === 0}>
+            <Trash2 className="mr-2 h-4 w-4" />
+            Clear All
+          </Button>
+          <Button onClick={handleDownload} disabled={isZipping || capturedFrames.length === 0} size="sm">
+            {isZipping ? (
+              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+            ) : (
+              <FileDown className="mr-2 h-4 w-4" />
+            )}
+            Export All
+          </Button>
         </div>
       </CardHeader>
       <CardContent>
-        <ScrollArea className="h-48 w-full whitespace-nowrap rounded-md border bg-background">
-          <div className="flex w-max space-x-4 p-4">
-            {capturedFrames.length > 0 ? (
-              capturedFrames.map((frame, i) => (
-                <figure key={`${frame.index}-${i}`} className="group relative shrink-0">
-                  <div className="overflow-hidden rounded-md shadow-lg transition-all duration-300 group-hover:ring-2 group-hover:ring-accent group-hover:ring-offset-2 group-hover:ring-offset-background">
-                    <img
-                      src={frame.dataUrl}
-                      alt={`Captured frame ${frame.index}`}
-                      className="aspect-video h-36 w-auto object-cover transition-transform group-hover:scale-105"
-                      width={256}
-                      height={144}
-                      data-ai-hint="video frame"
-                    />
-                  </div>
-                  <figcaption className="absolute bottom-0 w-full rounded-b-md bg-black/60 p-1.5 text-center text-xs text-white backdrop-blur-sm">
-                    Frame {frame.index}
-                  </figcaption>
-                   <Button
-                    variant="destructive"
-                    size="icon"
-                    className="absolute -right-2 -top-2 z-10 h-7 w-7 rounded-full opacity-0 shadow-lg transition-all group-hover:opacity-100 group-hover:scale-110"
-                    onClick={() => onDelete(frame)}
-                  >
-                    <X className="h-4 w-4" />
-                  </Button>
-                </figure>
-              ))
-            ) : (
-              <div className="flex h-40 w-full items-center justify-center text-sm text-muted-foreground">
-                Your captured frames will appear here.
-              </div>
-            )}
+        {capturedFrames.length > 0 ? (
+          <div className="rounded-md border">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead className="w-32">Frame</TableHead>
+                  <TableHead>AI Description</TableHead>
+                  <TableHead>AI Prompt</TableHead>
+                  <TableHead className="w-16">Actions</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {capturedFrames.map((frame) => (
+                  <TableRow key={frame.index}>
+                    <TableCell className="p-2">
+                      <div className="flex flex-col items-center gap-2">
+                        <img
+                          src={frame.dataUrl}
+                          alt={`Frame ${frame.index}`}
+                          className="aspect-video w-20 rounded object-cover shadow-sm"
+                        />
+                        <Badge variant="secondary" className="text-xs">
+                          #{frame.index}
+                        </Badge>
+                      </div>
+                    </TableCell>
+                    <TableCell className="p-2">
+                      <div className="space-y-2">
+                        {frame.isAnalyzing ? (
+                          <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                            <Loader2 className="h-4 w-4 animate-spin" />
+                            Analyzing...
+                          </div>
+                        ) : frame.aiDescription ? (
+                          <Textarea
+                            value={frame.aiDescription}
+                            onChange={(e) => handleTextEdit(frame.index, 'aiDescription', e.target.value)}
+                            className="min-h-16 text-sm"
+                            placeholder="AI description will appear here..."
+                          />
+                        ) : (
+                          <div className="flex items-center justify-center gap-2">
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              onClick={() => handleAnalyzeFrame(frame)}
+                              className="w-full"
+                            >
+                              <Brain className="mr-2 h-4 w-4" />
+                              Analyze
+                            </Button>
+                          </div>
+                        )}
+                      </div>
+                    </TableCell>
+                    <TableCell className="p-2">
+                      <div className="space-y-2">
+                        {frame.isGeneratingPrompt ? (
+                          <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                            <Loader2 className="h-4 w-4 animate-spin" />
+                            Generating...
+                          </div>
+                        ) : frame.aiPrompt ? (
+                          <Textarea
+                            value={frame.aiPrompt}
+                            onChange={(e) => handleTextEdit(frame.index, 'aiPrompt', e.target.value)}
+                            className="min-h-16 text-sm"
+                            placeholder="AI prompt will appear here..."
+                          />
+                        ) : (
+                          <div className="flex items-center justify-center gap-2">
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              onClick={() => handleGeneratePrompt(frame)}
+                              className="w-full"
+                            >
+                              <Sparkles className="mr-2 h-4 w-4" />
+                              Generate
+                            </Button>
+                          </div>
+                        )}
+                      </div>
+                    </TableCell>
+                    <TableCell className="p-2">
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        onClick={() => onDelete(frame)}
+                        className="h-8 w-8 text-muted-foreground hover:text-destructive"
+                      >
+                        <X className="h-4 w-4" />
+                      </Button>
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
           </div>
-          <ScrollBar orientation="horizontal" />
-        </ScrollArea>
+        ) : (
+          <div className="flex h-32 w-full items-center justify-center text-sm text-muted-foreground border border-dashed rounded-lg">
+            Capture frames from your video to start AI analysis
+          </div>
+        )}
       </CardContent>
     </Card>
   );
