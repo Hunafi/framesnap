@@ -84,7 +84,10 @@ const Index = () => {
     const video = videoRef.current;
     if (!video || !videoUrl) return;
 
+    console.log('Setting up video event listeners');
+
     const onLoadedMetadata = () => {
+      console.log('Video metadata loaded, duration:', video.duration);
       const dur = video.duration;
       setDuration(dur);
       if (dur > 7200) {
@@ -99,13 +102,33 @@ const Index = () => {
         });
       }
       generateScenes(dur).catch(err => {
+        console.error('Scene generation error:', err);
         setError(`Scene generation failed: ${err.message}`);
         setIsProcessing(false);
       });
     };
 
-    video.addEventListener('loadedmetadata', onLoadedMetadata);
-    return () => video.removeEventListener('loadedmetadata', onLoadedMetadata);
+    const onCanPlay = () => {
+      console.log('Video can play, readyState:', video.readyState);
+      // If metadata is already loaded, trigger the processing
+      if (video.duration > 0) {
+        onLoadedMetadata();
+      }
+    };
+
+    // Check if metadata is already loaded
+    if (video.readyState >= 1) {
+      console.log('Video metadata already loaded');
+      onLoadedMetadata();
+    } else {
+      video.addEventListener('loadedmetadata', onLoadedMetadata);
+      video.addEventListener('canplay', onCanPlay);
+    }
+
+    return () => {
+      video.removeEventListener('loadedmetadata', onLoadedMetadata);
+      video.removeEventListener('canplay', onCanPlay);
+    };
   }, [videoUrl]);
 
   // Generate scenes and thumbnails locally (Canvas, base64)
@@ -148,25 +171,63 @@ const Index = () => {
   // Generate thumbnail locally via Canvas (base64)
   const generateThumbnail = (time: number): Promise<string> => {
     return new Promise((resolve, reject) => {
-      if (!videoRef.current) {
+      const video = videoRef.current;
+      if (!video) {
+        console.error('No video ref available for thumbnail');
         reject(new Error('Video not ready'));
         return;
       }
-      const video = videoRef.current;
-      const onSeeked = () => {
-        const canvas = document.createElement('canvas');
-        canvas.width = video.videoWidth / 4;
-        canvas.height = video.videoHeight / 4;
-        const ctx = canvas.getContext('2d');
-        if (ctx) {
-          ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-          resolve(canvas.toDataURL('image/png'));
-        } else {
-          reject(new Error('Canvas context failed'));
-        }
+
+      console.log(`Generating thumbnail at ${time}s`);
+      
+      const timeout = setTimeout(() => {
         video.removeEventListener('seeked', onSeeked);
+        video.removeEventListener('error', onError);
+        console.error('Thumbnail generation timeout');
+        reject(new Error('Thumbnail generation timeout'));
+      }, 3000);
+
+      const onSeeked = () => {
+        clearTimeout(timeout);
+        console.log(`Video seeked to ${video.currentTime}s`);
+        
+        try {
+          const canvas = document.createElement('canvas');
+          canvas.width = Math.max(160, video.videoWidth / 4);
+          canvas.height = Math.max(90, video.videoHeight / 4);
+          const ctx = canvas.getContext('2d');
+          
+          if (ctx && video.videoWidth > 0 && video.videoHeight > 0) {
+            ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+            const dataUrl = canvas.toDataURL('image/png');
+            console.log('Thumbnail generated successfully');
+            resolve(dataUrl);
+          } else {
+            console.error('Canvas context failed or video dimensions invalid');
+            reject(new Error('Canvas context failed'));
+          }
+        } catch (error) {
+          console.error('Error drawing to canvas:', error);
+          reject(error);
+        }
+        
+        video.removeEventListener('seeked', onSeeked);
+        video.removeEventListener('error', onError);
       };
+
+      const onError = (error: Event) => {
+        clearTimeout(timeout);
+        console.error('Video seek error:', error);
+        video.removeEventListener('seeked', onSeeked);
+        video.removeEventListener('error', onError);
+        reject(new Error('Video seek failed'));
+      };
+
       video.addEventListener('seeked', onSeeked);
+      video.addEventListener('error', onError);
+      
+      // Set the time and trigger seek
+      console.log(`Setting video currentTime to ${time}`);
       video.currentTime = time;
     });
   };
