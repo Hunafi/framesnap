@@ -1,10 +1,14 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useCallback } from 'react';
 import Draggable from 'react-draggable';
 import JSZip from 'jszip';
 import { saveAs } from 'file-saver';
+import { Upload, Download, Camera, Undo2, Play, Pause, RotateCcw, Moon, Sun } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { Progress } from '@/components/ui/progress';
+import { Card, CardContent } from '@/components/ui/card';
+import { useToast } from '@/hooks/use-toast';
 
-const App: React.FC = () => {
+const Index = () => {
   const [videoFile, setVideoFile] = useState<File | null>(null);
   const [videoUrl, setVideoUrl] = useState<string>('');
   const [duration, setDuration] = useState<number>(0);
@@ -12,22 +16,68 @@ const App: React.FC = () => {
   const [currentTime, setCurrentTime] = useState<number>(0);
   const [screenshots, setScreenshots] = useState<{ dataUrl: string; timestamp: number }[]>([]);
   const [error, setError] = useState<string>('');
-  const [darkMode, setDarkMode] = useState(false);
+  const [isPlaying, setIsPlaying] = useState<boolean>(false);
+  const [darkMode, setDarkMode] = useState<boolean>(false);
+  const [isProcessing, setIsProcessing] = useState<boolean>(false);
+  const [wheelPosition, setWheelPosition] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
+  const [isDragOver, setIsDragOver] = useState<boolean>(false);
+  
   const videoRef = useRef<HTMLVideoElement>(null);
   const timelineRef = useRef<HTMLDivElement>(null);
-  const wheelRef = useRef<HTMLDivElement>(null);
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const { toast } = useToast();
 
-  // Handle local video upload (browser-only)
-  const handleUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (file) {
-      setVideoFile(file);
-      const url = URL.createObjectURL(file);
-      setVideoUrl(url);
-      setScenes([]); // Reset scenes
-      setError(''); // Clear errors
+  // Process uploaded file
+  const processFile = useCallback((file: File) => {
+    if (!file.type.startsWith('video/')) {
+      toast({
+        title: "Invalid file type",
+        description: "Please select a video file",
+        variant: "destructive"
+      });
+      return;
     }
-  };
+
+    setVideoFile(file);
+    const url = URL.createObjectURL(file);
+    setVideoUrl(url);
+    setScenes([]); // Reset scenes
+    setError(''); // Clear errors
+    setIsProcessing(true);
+    
+    toast({
+      title: "Video uploaded",
+      description: "Processing video... Please wait.",
+    });
+  }, [toast]);
+
+  // Handle video upload with validation
+  const handleUpload = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    processFile(file);
+  }, [processFile]);
+
+  // Drag and drop handlers
+  const handleDragOver = useCallback((e: React.DragEvent) => {
+    e.preventDefault();
+    setIsDragOver(true);
+  }, []);
+
+  const handleDragLeave = useCallback((e: React.DragEvent) => {
+    e.preventDefault();
+    setIsDragOver(false);
+  }, []);
+
+  const handleDrop = useCallback((e: React.DragEvent) => {
+    e.preventDefault();
+    setIsDragOver(false);
+    
+    const files = Array.from(e.dataTransfer.files);
+    if (files.length > 0) {
+      processFile(files[0]);
+    }
+  }, [processFile]);
 
   // Effect to load metadata and generate scenes once video is ready
   useEffect(() => {
@@ -39,11 +89,19 @@ const App: React.FC = () => {
       setDuration(dur);
       if (dur > 7200) {
         setError('Error: Video exceeds 2-hour limit to prevent browser overload.');
+        setIsProcessing(false);
         return;
       } else if (dur > 3600) {
-        alert('Warning: Videos over 1 hour may impact browser performance—close other tabs for best results.');
+        toast({
+          title: "Performance warning",
+          description: "Videos over 1 hour may impact browser performance. Consider closing other tabs.",
+          variant: "destructive"
+        });
       }
-      generateScenes(dur).catch(err => setError(`Scene generation failed: ${err.message}`));
+      generateScenes(dur).catch(err => {
+        setError(`Scene generation failed: ${err.message}`);
+        setIsProcessing(false);
+      });
     };
 
     video.addEventListener('loadedmetadata', onLoadedMetadata);
@@ -52,18 +110,38 @@ const App: React.FC = () => {
 
   // Generate scenes and thumbnails locally (Canvas, base64)
   const generateScenes = async (dur: number) => {
-    const sceneList = [];
+    const sceneList: { start: number; end: number; thumbnail: string }[] = [];
     const chunkSize = 5;
-    for (let i = 0; i < dur; i += chunkSize) {
-      const start = i;
-      const end = Math.min(i + chunkSize, dur);
-      try {
-        const thumbnail = await generateThumbnail(start);
-        sceneList.push({ start, end, thumbnail });
-        setScenes([...sceneList]); // Update progressively
-      } catch (err) {
-        console.error(`Thumbnail failed for ${start}: ${err}`);
+    const totalChunks = Math.ceil(dur / chunkSize);
+    
+    try {
+      for (let i = 0; i < dur; i += chunkSize) {
+        const start = i;
+        const end = Math.min(i + chunkSize, dur);
+        try {
+          const thumbnail = await generateThumbnail(start);
+          if (thumbnail) {
+            sceneList.push({ start, end, thumbnail });
+            setScenes([...sceneList]); // Update progressively
+          }
+        } catch (err) {
+          console.error(`Thumbnail failed for ${start}: ${err}`);
+        }
       }
+      
+      toast({
+        title: "Video processed successfully",
+        description: `Generated ${sceneList.length} scene segments`,
+      });
+    } catch (error) {
+      console.error('Scene generation error:', error);
+      toast({
+        title: "Processing error",
+        description: "Failed to process video scenes",
+        variant: "destructive"
+      });
+    } finally {
+      setIsProcessing(false);
     }
   };
 
@@ -93,83 +171,362 @@ const App: React.FC = () => {
     });
   };
 
-  // Timeline scroll sync
-  const handleTimelineScroll = () => {
-    if (timelineRef.current) {
-      const scrollPos = timelineRef.current.scrollLeft / timelineRef.current.scrollWidth;
-      setCurrentTime(scrollPos * duration);
-      if (videoRef.current) videoRef.current.currentTime = currentTime;
-      if (wheelRef.current) wheelRef.current.style.transform = `rotate(${scrollPos * 360}deg)`;
-    }
-  };
+  // Handle timeline scroll synchronization
+  const handleTimelineScroll = useCallback(() => {
+    if (!timelineRef.current || !videoRef.current) return;
+    
+    const scrollPos = timelineRef.current.scrollLeft / (timelineRef.current.scrollWidth - timelineRef.current.clientWidth);
+    const newTime = scrollPos * duration;
+    setCurrentTime(newTime);
+    videoRef.current.currentTime = newTime;
+  }, [duration]);
 
-  // Wheel drag sync
-  const handleWheelDrag = (e: any, data: any) => {
-    const rotation = data.x / 10;
-    if (timelineRef.current) timelineRef.current.scrollLeft += rotation;
+  // Handle wheel drag for timeline control
+  const handleWheelDrag = useCallback((e: any, data: any) => {
+    if (!timelineRef.current) return;
+    
+    const sensitivity = 2;
+    const scrollDelta = data.deltaX * sensitivity;
+    timelineRef.current.scrollLeft += scrollDelta;
     handleTimelineScroll();
-  };
+    setWheelPosition({ x: data.x, y: data.y });
+  }, [handleTimelineScroll]);
 
-  // Capture screenshot locally (base64 in state)
-  const captureScreenshot = () => {
-    if (!videoRef.current) return;
+  // Capture high-quality screenshot
+  const captureScreenshot = useCallback(() => {
+    if (!videoRef.current) {
+      toast({
+        title: "No video loaded",
+        description: "Please upload a video first",
+        variant: "destructive"
+      });
+      return;
+    }
+
     const canvas = document.createElement('canvas');
-    canvas.width = videoRef.current.videoWidth;
-    canvas.height = videoRef.current.videoHeight;
+    const video = videoRef.current;
+    canvas.width = video.videoWidth;
+    canvas.height = video.videoHeight;
+    
     const ctx = canvas.getContext('2d');
     if (ctx) {
-      ctx.drawImage(videoRef.current, 0, 0, canvas.width, canvas.height);
+      ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
       const dataUrl = canvas.toDataURL('image/png');
-      setScreenshots([...screenshots, { dataUrl, timestamp: currentTime }]);
+      setScreenshots(prev => [...prev, { dataUrl, timestamp: currentTime }]);
+      
+      toast({
+        title: "Frame captured",
+        description: `Screenshot ${screenshots.length + 1} saved`,
+      });
     }
-  };
+  }, [currentTime, screenshots.length, toast]);
 
-  // Download ZIP locally
-  const downloadZip = async () => {
-    const zip = new JSZip();
-    screenshots.forEach((shot, idx) => {
-      const base64 = shot.dataUrl.split(',')[1];
-      zip.file(`frame-${shot.timestamp}-${idx}.png`, base64, { base64: true });
-    });
-    const content = await zip.generateAsync({ type: 'blob' });
-    saveAs(content, 'screenshots.zip');
-  };
+  // Download screenshots as ZIP
+  const downloadZip = useCallback(async () => {
+    if (screenshots.length === 0) {
+      toast({
+        title: "No screenshots",
+        description: "Capture some frames first",
+        variant: "destructive"
+      });
+      return;
+    }
+
+    try {
+      const zip = new JSZip();
+      const timestamp = new Date().toISOString().slice(0, 19).replace(/:/g, '-');
+      
+      screenshots.forEach((shot, idx) => {
+        const base64 = shot.dataUrl.split(',')[1];
+        const timeStr = Math.floor(shot.timestamp).toString().padStart(3, '0');
+        zip.file(`frame-${timeStr}s-${idx + 1}.png`, base64, { base64: true });
+      });
+      
+      const content = await zip.generateAsync({ type: 'blob' });
+      saveAs(content, `video-frames-${timestamp}.zip`);
+      
+      toast({
+        title: "Download complete",
+        description: `${screenshots.length} frames downloaded`,
+      });
+    } catch (error) {
+      toast({
+        title: "Download failed",
+        description: "Failed to create ZIP file",
+        variant: "destructive"
+      });
+    }
+  }, [screenshots, toast]);
 
   // Undo last screenshot
-  const undoScreenshot = () => {
-    setScreenshots(screenshots.slice(0, -1));
+  const undoScreenshot = useCallback(() => {
+    if (screenshots.length === 0) return;
+    setScreenshots(prev => prev.slice(0, -1));
+    toast({
+      title: "Screenshot removed",
+      description: "Last frame capture undone",
+    });
+  }, [screenshots.length, toast]);
+
+  // Toggle video playback
+  const togglePlayback = useCallback(() => {
+    if (!videoRef.current) return;
+    
+    if (isPlaying) {
+      videoRef.current.pause();
+    } else {
+      videoRef.current.play();
+    }
+    setIsPlaying(!isPlaying);
+  }, [isPlaying]);
+
+  // Jump to specific scene
+  const jumpToScene = useCallback((scene: { start: number; end: number; thumbnail: string }) => {
+    if (!videoRef.current || !timelineRef.current) return;
+    
+    setCurrentTime(scene.start);
+    videoRef.current.currentTime = scene.start;
+    
+    // Scroll timeline to position
+    const scrollPos = (scene.start / duration) * (timelineRef.current.scrollWidth - timelineRef.current.clientWidth);
+    timelineRef.current.scrollLeft = scrollPos;
+  }, [duration]);
+
+  const formatTime = (seconds: number) => {
+    const mins = Math.floor(seconds / 60);
+    const secs = Math.floor(seconds % 60);
+    return `${mins}:${secs.toString().padStart(2, '0')}`;
   };
 
   return (
-    <div className={`min-h-screen bg-white dark:bg-gray-900 text-black dark:text-white ${darkMode ? 'dark' : ''}`}>
-      <button onClick={() => setDarkMode(!darkMode)}>Toggle Dark Mode</button>
-      <input type="file" accept="video/mp4,video/webm" onChange={handleUpload} />
-      {error && <p className="text-red-500">{error}</p>}
-      {videoUrl && (
-        <>
-          <video ref={videoRef} src={videoUrl} className="w-full h-64" controls />
-          <div ref={timelineRef} className="overflow-x-auto flex" onScroll={handleTimelineScroll}
-            style={{ background: 'linear-gradient(to right, #A78BFA, #E9D5FF)' }}>
-            {scenes.map((scene, idx) => (
-              <div key={idx} className="w-32 h-24 flex-shrink-0">
-                <img src={scene.thumbnail} alt={`Scene ${idx}`} className="object-cover w-full h-full" />
+    <div className={`min-h-screen transition-colors duration-300 ${darkMode ? 'dark bg-background' : 'bg-gradient-to-br from-purple-50 via-white to-lavender-50'}`}>
+      {/* Header */}
+      <div className="sticky top-0 z-50 backdrop-blur-lg bg-background/80 border-b">
+        <div className="container mx-auto px-4 py-4">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-purple-500 to-pink-500 flex items-center justify-center">
+                <Camera className="w-5 h-5 text-white" />
               </div>
-            ))}
+              <h1 className="text-2xl font-bold bg-gradient-to-r from-purple-600 to-pink-600 bg-clip-text text-transparent">
+                FrameSnap
+              </h1>
+            </div>
+            
+            <div className="flex items-center gap-2">
+              <Button
+                variant="ghost"
+                size="icon"
+                onClick={() => setDarkMode(!darkMode)}
+                className="hover-scale"
+              >
+                {darkMode ? <Sun className="w-4 h-4" /> : <Moon className="w-4 h-4" />}
+              </Button>
+            </div>
           </div>
-          <div className="fixed left-1/2 transform -translate-x-1/2 h-24 bg-red-500 w-1" /> {/* Playhead */}
-          <Draggable onDrag={handleWheelDrag}>
-            <div ref={wheelRef} className="w-16 h-16 rounded-full bg-purple-500 cursor-grab" /> {/* Wheel */}
-          </Draggable>
-          <button onClick={captureScreenshot}>Capture Frame</button>
-          <button onClick={undoScreenshot}>Undo</button>
-          <button onClick={downloadZip}>Download ZIP</button>
-          <div className="grid grid-cols-4 gap-4">
-            {screenshots.map((shot, idx) => <img key={idx} src={shot.dataUrl} alt="Screenshot" className="w-32" />)}
+        </div>
+      </div>
+
+      <div className="container mx-auto px-4 py-8 space-y-8">
+        {/* Error Display */}
+        {error && (
+          <Card className="border-red-200 bg-red-50 dark:bg-red-950/20">
+            <CardContent className="p-4">
+              <p className="text-red-600 dark:text-red-400">{error}</p>
+            </CardContent>
+          </Card>
+        )}
+
+        {/* Upload Section */}
+        {!videoUrl && (
+          <Card 
+            className={`border-dashed border-2 hover-scale animate-fade-in transition-all ${
+              isDragOver ? 'border-purple-500 bg-purple-50 dark:bg-purple-950/20' : 'border-muted-foreground/25'
+            }`}
+            onDragOver={handleDragOver}
+            onDragLeave={handleDragLeave}
+            onDrop={handleDrop}
+          >
+            <CardContent className="p-12 text-center">
+              <div className="space-y-4">
+                <div className="mx-auto w-16 h-16 rounded-full bg-gradient-to-br from-purple-500 to-pink-500 flex items-center justify-center">
+                  <Upload className="w-8 h-8 text-white" />
+                </div>
+                <div>
+                  <h3 className="text-xl font-semibold mb-2">Upload Your Video</h3>
+                  <p className="text-muted-foreground mb-4">
+                    Drag and drop a video file or click to browse (MP4, WebM supported)
+                  </p>
+                </div>
+                <label htmlFor="video-upload">
+                  <Button asChild className="bg-gradient-to-r from-purple-500 to-pink-500 hover:from-purple-600 hover:to-pink-600">
+                    <span>Choose Video File</span>
+                  </Button>
+                  <input
+                    id="video-upload"
+                    type="file"
+                    accept="video/mp4,video/webm,video/avi,video/mov"
+                    onChange={handleUpload}
+                    className="hidden"
+                  />
+                </label>
+              </div>
+            </CardContent>
+          </Card>
+        )}
+
+        {/* Processing Indicator */}
+        {isProcessing && (
+          <Card className="animate-pulse">
+            <CardContent className="p-6">
+              <div className="flex items-center gap-3 mb-3">
+                <RotateCcw className="w-5 h-5 animate-spin text-purple-500" />
+                <span className="font-medium">Processing video...</span>
+              </div>
+              <Progress className="w-full" value={50} />
+              <p className="text-sm text-muted-foreground mt-2">Extracting scene thumbnails...</p>
+            </CardContent>
+          </Card>
+        )}
+
+        {/* Video Player & Timeline */}
+        {videoUrl && !isProcessing && (
+          <div className="space-y-6 animate-fade-in">
+            {/* Video Player */}
+            <Card className="overflow-hidden">
+              <CardContent className="p-0">
+                <div className="relative bg-black">
+                  <video
+                    ref={videoRef}
+                    src={videoUrl}
+                    className="w-full h-[60vh] object-contain"
+                    onTimeUpdate={(e) => setCurrentTime(e.currentTarget.currentTime)}
+                    onPlay={() => setIsPlaying(true)}
+                    onPause={() => setIsPlaying(false)}
+                  />
+                  
+                  {/* Video Controls Overlay */}
+                  <div className="absolute bottom-4 left-4 right-4 flex items-center gap-4 bg-black/50 backdrop-blur-sm rounded-lg p-3">
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      onClick={togglePlayback}
+                      className="text-white hover:bg-white/20"
+                    >
+                      {isPlaying ? <Pause className="w-4 h-4" /> : <Play className="w-4 h-4" />}
+                    </Button>
+                    
+                    <div className="flex-1 text-white text-sm">
+                      {formatTime(currentTime)} / {formatTime(duration)}
+                    </div>
+                    
+                    <Button
+                      onClick={captureScreenshot}
+                      className="bg-gradient-to-r from-purple-500 to-pink-500 hover:from-purple-600 hover:to-pink-600"
+                      size="sm"
+                    >
+                      <Camera className="w-4 h-4 mr-2" />
+                      Capture Frame
+                    </Button>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+
+            {/* Timeline with Playhead */}
+            <Card>
+              <CardContent className="p-4">
+                <div className="relative">
+                  <div
+                    ref={timelineRef}
+                    className="overflow-x-auto scrollbar-thin scrollbar-thumb-purple-300 hover:scrollbar-thumb-purple-400"
+                    onScroll={handleTimelineScroll}
+                  >
+                    <div className="flex gap-1 min-w-max p-2">
+                      {scenes.map((scene, idx) => (
+                        <div
+                          key={idx}
+                          className="flex-shrink-0 cursor-pointer group"
+                          onClick={() => jumpToScene(scene)}
+                        >
+                          <div className="w-32 h-20 rounded overflow-hidden border-2 border-transparent group-hover:border-purple-400 transition-colors">
+                            <img 
+                              src={scene.thumbnail} 
+                              alt={`Scene ${idx}`} 
+                              className="w-full h-full object-cover"
+                            />
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                  
+                  {/* Fixed Playhead */}
+                  <div className="absolute top-0 left-1/2 transform -translate-x-1/2 h-full w-1 bg-red-500 pointer-events-none z-10" />
+                </div>
+              </CardContent>
+            </Card>
+
+            {/* Control Wheel */}
+            <div className="fixed bottom-8 right-8 z-40">
+              <Draggable onDrag={handleWheelDrag} position={wheelPosition}>
+                <div className="w-16 h-16 rounded-full bg-gradient-to-br from-purple-500 to-pink-500 cursor-grab active:cursor-grabbing shadow-lg flex items-center justify-center">
+                  <RotateCcw className="w-6 h-6 text-white" />
+                </div>
+              </Draggable>
+            </div>
+
+            {/* Screenshot Controls */}
+            {screenshots.length > 0 && (
+              <Card>
+                <CardContent className="p-6">
+                  <div className="flex items-center justify-between mb-4">
+                    <h3 className="text-lg font-semibold">Captured Frames ({screenshots.length})</h3>
+                    <div className="flex gap-2">
+                      <Button
+                        onClick={undoScreenshot}
+                        variant="outline"
+                        size="sm"
+                        disabled={screenshots.length === 0}
+                      >
+                        <Undo2 className="w-4 h-4 mr-2" />
+                        Undo Last
+                      </Button>
+                      <Button
+                        onClick={downloadZip}
+                        className="bg-gradient-to-r from-green-500 to-emerald-500 hover:from-green-600 hover:to-emerald-600"
+                        size="sm"
+                      >
+                        <Download className="w-4 h-4 mr-2" />
+                        Download ZIP
+                      </Button>
+                    </div>
+                  </div>
+                  
+                  <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-4">
+                    {screenshots.map((shot, idx) => (
+                      <div key={idx} className="group relative">
+                        <img 
+                          src={shot.dataUrl} 
+                          alt={`Screenshot ${idx + 1}`} 
+                          className="w-full aspect-video object-cover rounded-lg shadow-md hover:shadow-lg transition-shadow"
+                        />
+                        <div className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity rounded-lg flex items-center justify-center">
+                          <span className="text-white text-sm font-medium">
+                            {formatTime(shot.timestamp)}
+                          </span>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </CardContent>
+              </Card>
+            )}
           </div>
-        </>
-      )}
+        )}
+      </div>
     </div>
   );
 };
 
-export default App;
+export default Index;
