@@ -85,7 +85,7 @@ export default function Admin() {
       <header className="sticky top-0 z-30 flex h-16 w-full items-center justify-between border-b border-border/40 bg-background/95 px-4 backdrop-blur supports-[backdrop-filter]:bg-background/60 sm:px-6">
         <div className="flex items-center gap-3">
           <Target className="h-8 w-8 text-primary" />
-          <h1 className="text-2xl font-bold tracking-tighter">
+          <h1 className="text-2xl font-bold tracking-tighter text-green-400">
             Frame Sniper Admin
           </h1>
         </div>
@@ -97,7 +97,7 @@ export default function Admin() {
             <ArrowLeft className="mr-2 h-4 w-4" />
             Back to App
           </Button>
-          <Button variant="outline" size="sm" onClick={handleSignOut}>
+          <Button variant="outline" size="sm" onClick={handleSignOut} className="text-white">
             Sign Out
           </Button>
         </div>
