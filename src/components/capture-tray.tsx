@@ -2,10 +2,13 @@
 
 import type { FC } from 'react';
 import { useState } from 'react';
-import { Download, Loader2, Trash2, X, Brain, Sparkles, Edit3, FileDown, Copy } from 'lucide-react';
+import { Download, Loader2, Trash2, X, Brain, Sparkles, Edit3, FileDown, Copy, FileText, FileImage } from 'lucide-react';
 import JSZip from 'jszip';
+import jsPDF from 'jspdf';
+import { Document, Packer, Paragraph, TextRun, ImageRun, HeadingLevel } from 'docx';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Badge } from '@/components/ui/badge';
 import { useToast } from '@/hooks/use-toast';
@@ -24,8 +27,11 @@ interface CaptureTrayProps {
   videoAspectRatio?: number; // width/height ratio
 }
 
+type ExportFormat = 'zip' | 'pdf' | 'docx';
+
 export const CaptureTray: FC<CaptureTrayProps> = ({ capturedFrames, onClear, onDelete, onUpdateFrame, videoAspectRatio = 16/9 }) => {
-  const [isZipping, setIsZipping] = useState(false);
+  const [isExporting, setIsExporting] = useState(false);
+  const [exportFormat, setExportFormat] = useState<ExportFormat>('zip');
   const [editingField, setEditingField] = useState<string | null>(null);
   const [selectedFrame, setSelectedFrame] = useState<{ frameIndex: number; dataUrl: string } | null>(null);
   const { toast } = useToast();
@@ -95,60 +101,260 @@ export const CaptureTray: FC<CaptureTrayProps> = ({ capturedFrames, onClear, onD
     }
   };
 
-  const handleDownload = async () => {
+  const generatePDF = async (): Promise<void> => {
+    const pdf = new jsPDF();
+    const pageWidth = pdf.internal.pageSize.getWidth();
+    const pageHeight = pdf.internal.pageSize.getHeight();
+    const margin = 20;
+    let yPosition = margin;
+
+    // Title
+    pdf.setFontSize(20);
+    pdf.text('Frame Sniper AI Analysis Report', margin, yPosition);
+    yPosition += 20;
+
+    // Metadata
+    pdf.setFontSize(12);
+    pdf.text(`Export Date: ${new Date().toLocaleDateString()}`, margin, yPosition);
+    yPosition += 10;
+    pdf.text(`Total Frames: ${capturedFrames.length}`, margin, yPosition);
+    yPosition += 20;
+
+    // Process each frame
+    for (let i = 0; i < capturedFrames.length; i++) {
+      const frame = capturedFrames[i];
+      
+      // Check if we need a new page
+      if (yPosition > pageHeight - 100) {
+        pdf.addPage();
+        yPosition = margin;
+      }
+
+      // Frame header
+      pdf.setFontSize(16);
+      pdf.text(`Frame ${frame.index}`, margin, yPosition);
+      yPosition += 15;
+
+      // Add frame image (small thumbnail)
+      try {
+        const imgData = frame.dataUrl;
+        pdf.addImage(imgData, 'JPEG', margin, yPosition, 60, 34);
+        yPosition += 45;
+      } catch (error) {
+        console.warn(`Could not add image for frame ${frame.index}:`, error);
+      }
+
+      // AI Description
+      if (frame.aiDescription) {
+        pdf.setFontSize(14);
+        pdf.text('AI Description:', margin, yPosition);
+        yPosition += 8;
+        pdf.setFontSize(10);
+        const descLines = pdf.splitTextToSize(frame.aiDescription, pageWidth - 2 * margin);
+        pdf.text(descLines, margin, yPosition);
+        yPosition += descLines.length * 5 + 10;
+      }
+
+      // AI Prompt
+      if (frame.aiPrompt) {
+        pdf.setFontSize(14);
+        pdf.text('AI Prompt:', margin, yPosition);
+        yPosition += 8;
+        pdf.setFontSize(10);
+        const promptLines = pdf.splitTextToSize(frame.aiPrompt, pageWidth - 2 * margin);
+        pdf.text(promptLines, margin, yPosition);
+        yPosition += promptLines.length * 5 + 15;
+      }
+
+      yPosition += 10; // Extra spacing between frames
+    }
+
+    pdf.save('FrameSniper_AI_Analysis.pdf');
+  };
+
+  const generateDOCX = async (): Promise<void> => {
+    const children: any[] = [];
+
+    // Title
+    children.push(
+      new Paragraph({
+        text: 'Frame Sniper AI Analysis Report',
+        heading: HeadingLevel.TITLE,
+      })
+    );
+
+    // Metadata
+    children.push(
+      new Paragraph({
+        children: [
+          new TextRun({
+            text: `Export Date: ${new Date().toLocaleDateString()}`,
+            break: 1,
+          }),
+          new TextRun({
+            text: `Total Frames: ${capturedFrames.length}`,
+            break: 1,
+          }),
+        ],
+      })
+    );
+
+    // Process each frame
+    for (const frame of capturedFrames) {
+      // Frame header
+      children.push(
+        new Paragraph({
+          text: `Frame ${frame.index}`,
+          heading: HeadingLevel.HEADING_1,
+        })
+      );
+
+      // Add frame image
+      try {
+        const response = await fetch(frame.dataUrl);
+        const imageBuffer = await response.arrayBuffer();
+        children.push(
+          new Paragraph({
+            children: [
+              new ImageRun({
+                type: 'png',
+                data: new Uint8Array(imageBuffer),
+                transformation: {
+                  width: 300,
+                  height: 169,
+                },
+              }),
+            ],
+          })
+        );
+      } catch (error) {
+        console.warn(`Could not add image for frame ${frame.index}:`, error);
+      }
+
+      // AI Description
+      if (frame.aiDescription) {
+        children.push(
+          new Paragraph({
+            text: 'AI Description:',
+            heading: HeadingLevel.HEADING_2,
+          })
+        );
+        children.push(
+          new Paragraph({
+            text: frame.aiDescription,
+          })
+        );
+      }
+
+      // AI Prompt
+      if (frame.aiPrompt) {
+        children.push(
+          new Paragraph({
+            text: 'AI Prompt:',
+            heading: HeadingLevel.HEADING_2,
+          })
+        );
+        children.push(
+          new Paragraph({
+            text: frame.aiPrompt,
+          })
+        );
+      }
+    }
+
+    const doc = new Document({
+      sections: [
+        {
+          children,
+        },
+      ],
+    });
+
+    const buffer = await Packer.toBuffer(doc);
+    const blob = new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'FrameSniper_AI_Analysis.docx';
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  };
+
+  const generateZIP = async (): Promise<void> => {
+    const zip = new JSZip();
+    
+    // Add images
+    for (const frame of capturedFrames) {
+      const response = await fetch(frame.dataUrl);
+      const blob = await response.blob();
+      zip.file(`frame_${frame.index}.jpg`, blob, { binary: true });
+    }
+    
+    // Add CSV with AI data
+    const csvData = [
+      ['Frame', 'AI Description', 'AI Prompt'],
+      ...capturedFrames.map(frame => [
+        frame.index.toString(),
+        frame.aiDescription || '',
+        frame.aiPrompt || ''
+      ])
+    ];
+    const csvContent = csvData.map(row => row.map(cell => `"${cell}"`).join(',')).join('\n');
+    zip.file('frame_analysis.csv', csvContent);
+    
+    // Add JSON metadata
+    const metadata = {
+      exportDate: new Date().toISOString(),
+      totalFrames: capturedFrames.length,
+      framesWithAI: capturedFrames.filter(f => f.aiDescription || f.aiPrompt).length,
+      frames: capturedFrames.map(frame => ({
+        index: frame.index,
+        aiDescription: frame.aiDescription,
+        aiPrompt: frame.aiPrompt
+      }))
+    };
+    zip.file('metadata.json', JSON.stringify(metadata, null, 2));
+    
+    const content = await zip.generateAsync({ type: 'blob' });
+    const url = URL.createObjectURL(content);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'FrameSniper_AI_Export.zip';
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  };
+
+  const handleExport = async () => {
     if (capturedFrames.length === 0) {
       toast({
         title: 'No frames captured',
-        description: 'Please capture some frames before downloading.',
+        description: 'Please capture some frames before exporting.',
         variant: 'destructive',
       });
       return;
     }
-    setIsZipping(true);
+
+    setIsExporting(true);
     try {
-      const zip = new JSZip();
-      
-      // Add images
-      for (const frame of capturedFrames) {
-        const response = await fetch(frame.dataUrl);
-        const blob = await response.blob();
-        zip.file(`frame_${frame.index}.jpg`, blob, { binary: true });
+      switch (exportFormat) {
+        case 'pdf':
+          await generatePDF();
+          toast({ title: 'PDF exported successfully!' });
+          break;
+        case 'docx':
+          await generateDOCX();
+          toast({ title: 'Word document exported successfully!' });
+          break;
+        case 'zip':
+        default:
+          await generateZIP();
+          toast({ title: 'ZIP file exported successfully!' });
+          break;
       }
-      
-      // Add CSV with AI data
-      const csvData = [
-        ['Frame', 'AI Description', 'AI Prompt'],
-        ...capturedFrames.map(frame => [
-          frame.index.toString(),
-          frame.aiDescription || '',
-          frame.aiPrompt || ''
-        ])
-      ];
-      const csvContent = csvData.map(row => row.map(cell => `"${cell}"`).join(',')).join('\n');
-      zip.file('frame_analysis.csv', csvContent);
-      
-      // Add JSON metadata
-      const metadata = {
-        exportDate: new Date().toISOString(),
-        totalFrames: capturedFrames.length,
-        framesWithAI: capturedFrames.filter(f => f.aiDescription || f.aiPrompt).length,
-        frames: capturedFrames.map(frame => ({
-          index: frame.index,
-          aiDescription: frame.aiDescription,
-          aiPrompt: frame.aiPrompt
-        }))
-      };
-      zip.file('metadata.json', JSON.stringify(metadata, null, 2));
-      
-      const content = await zip.generateAsync({ type: 'blob' });
-      const url = URL.createObjectURL(content);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = 'FrameSniper_AI_Export.zip';
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-      URL.revokeObjectURL(url);
     } catch (error) {
       console.error('Error creating export:', error);
       toast({
@@ -157,7 +363,7 @@ export const CaptureTray: FC<CaptureTrayProps> = ({ capturedFrames, onClear, onD
         variant: 'destructive',
       });
     }
-    setIsZipping(false);
+    setIsExporting(false);
   };
 
   const handleTextEdit = (frameIndex: number, field: 'aiDescription' | 'aiPrompt', value: string) => {
@@ -181,13 +387,41 @@ export const CaptureTray: FC<CaptureTrayProps> = ({ capturedFrames, onClear, onD
             <Trash2 className="mr-2 h-4 w-4" />
             Clear All
           </Button>
-          <Button onClick={handleDownload} disabled={isZipping || capturedFrames.length === 0} size="sm">
-            {isZipping ? (
+          
+          {/* Export format selector */}
+          <Select value={exportFormat} onValueChange={(value: ExportFormat) => setExportFormat(value)}>
+            <SelectTrigger className="w-24 h-9">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="zip">
+                <div className="flex items-center gap-2">
+                  <FileImage className="h-4 w-4" />
+                  ZIP
+                </div>
+              </SelectItem>
+              <SelectItem value="pdf">
+                <div className="flex items-center gap-2">
+                  <FileText className="h-4 w-4" />
+                  PDF
+                </div>
+              </SelectItem>
+              <SelectItem value="docx">
+                <div className="flex items-center gap-2">
+                  <FileText className="h-4 w-4" />
+                  DOC
+                </div>
+              </SelectItem>
+            </SelectContent>
+          </Select>
+          
+          <Button onClick={handleExport} disabled={isExporting || capturedFrames.length === 0} size="sm">
+            {isExporting ? (
               <Loader2 className="mr-2 h-4 w-4 animate-spin" />
             ) : (
               <FileDown className="mr-2 h-4 w-4" />
             )}
-            Export All
+            Export {exportFormat.toUpperCase()}
           </Button>
         </div>
       </CardHeader>
