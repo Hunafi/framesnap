@@ -43,11 +43,8 @@ export const TimelineViewer: FC<TimelineViewerProps> = ({
   const [visibleRange, setVisibleRange] = useState({ start: 0, end: 0 });
   const [viewMode, setViewMode] = useState<'scenes' | 'frames'>('scenes');
   
-  const isAutoScrolling = useRef(false);
-  const scrollTimeoutRef = useRef<NodeJS.Timeout | null>(null);
-  
   // Scrollbar drag state
-  const [isDragging, setIsDragging] = useState(false);
+  const [isDraggingScrollbar, setIsDraggingScrollbar] = useState(false);
   const dragStartRef = useRef({ x: 0, scrollLeft: 0 });
 
   const timelineFrames = useMemo(() => {
@@ -136,72 +133,57 @@ export const TimelineViewer: FC<TimelineViewerProps> = ({
   }, [viewMode, activeScene, timelineFrames]);
 
 
-  useEffect(() => {
-    if (scrollContainerRef.current && viewMode === 'frames' && activeScene) {
-      const container = scrollContainerRef.current;
-      const relativeIndex = currentFrameIndex - activeScene.startFrame;
-      const targetScrollLeft = (relativeIndex * FRAME_WIDTH) - (container.offsetWidth / 2) + (FRAME_WIDTH / 2);
-      
-      isAutoScrolling.current = true;
-      container.scrollTo({ left: targetScrollLeft, behavior: 'smooth' });
-      
-      const timer = setTimeout(() => { 
-        isAutoScrolling.current = false;
-      }, 500);
-      
-      return () => clearTimeout(timer);
-    }
-  }, [currentFrameIndex, viewMode, activeScene]);
+  // Manual scroll-to-frame function for specific actions only
+  const scrollToFrame = useCallback((frameIndex: number, source: 'scene' | 'click') => {
+    if (!scrollContainerRef.current || !activeScene || viewMode !== 'frames') return;
+    
+    const container = scrollContainerRef.current;
+    const relativeIndex = frameIndex - activeScene.startFrame;
+    const targetScrollLeft = (relativeIndex * FRAME_WIDTH) - (container.offsetWidth / 2) + (FRAME_WIDTH / 2);
+    
+    container.scrollTo({ left: targetScrollLeft, behavior: source === 'scene' ? 'smooth' : 'auto' });
+  }, [activeScene, viewMode]);
 
-  const handleScroll = () => {
-    if(scrollTimeoutRef.current) clearTimeout(scrollTimeoutRef.current);
+  const handleScroll = useCallback(() => {
+    // Only handle scroll when user is actually scrolling the timeline (not dragging scrollbar)
+    if (isDraggingScrollbar || viewMode !== 'frames' || !activeScene || !scrollContainerRef.current) return;
     
-    // CRITICAL: User scroll takes priority - stop auto-scroll immediately
-    isAutoScrolling.current = false;
+    const container = scrollContainerRef.current;
+    const centerOfViewport = container.scrollLeft + (container.offsetWidth / 2);
+    const centerFrameRelativeIndex = Math.round(centerOfViewport / FRAME_WIDTH);
     
-    // Immediate scroll response for smooth frame selection under playhead
-    if (viewMode === 'frames' && activeScene && !isAutoScrolling.current) {
-      if (!scrollContainerRef.current) return;
-      const container = scrollContainerRef.current;
-      const centerOfViewport = container.scrollLeft + (container.offsetWidth / 2);
-      const centerFrameRelativeIndex = Math.round(centerOfViewport / FRAME_WIDTH);
-      
-      const centerFrameIndex = activeScene.startFrame + centerFrameRelativeIndex;
-      const clampedIndex = Math.max(activeScene.startFrame, Math.min(activeScene.endFrame, centerFrameIndex));
-      
-      // Update frame selection immediately for playhead preview
-      if (clampedIndex !== currentFrameIndex) {
-          onFrameSelect(clampedIndex);
-      }
+    const centerFrameIndex = activeScene.startFrame + centerFrameRelativeIndex;
+    const clampedIndex = Math.max(activeScene.startFrame, Math.min(activeScene.endFrame, centerFrameIndex));
+    
+    // Update frame selection for scroll-based navigation
+    if (clampedIndex !== currentFrameIndex) {
+      onFrameSelect(clampedIndex);
     }
-  };
+  }, [isDraggingScrollbar, viewMode, activeScene, currentFrameIndex, onFrameSelect]);
   
-  const handleWheel = (e: WheelEvent<HTMLDivElement>) => {
+  const handleWheel = useCallback((e: WheelEvent<HTMLDivElement>) => {
     if (e.deltaY !== 0 && scrollContainerRef.current) {
-        e.preventDefault();
-        isAutoScrolling.current = false; // Allow user scroll to interrupt auto-scroll
-        scrollContainerRef.current.scrollLeft += e.deltaY;
+      e.preventDefault();
+      scrollContainerRef.current.scrollLeft += e.deltaY;
     }
-  };
+  }, []);
 
-  // Scrollbar drag handlers
-  const handleScrollbarMouseDown = (e: React.MouseEvent) => {
+  // Enhanced scrollbar drag with proper frame selection
+  const handleScrollbarMouseDown = useCallback((e: React.MouseEvent) => {
     if (!scrollContainerRef.current) return;
     
-    setIsDragging(true);
-    isAutoScrolling.current = false; // Stop any auto-scrolling
-    
+    setIsDraggingScrollbar(true);
     dragStartRef.current = {
       x: e.clientX,
       scrollLeft: scrollContainerRef.current.scrollLeft
     };
     
     e.preventDefault();
-  };
+  }, []);
 
   useEffect(() => {
     const handleMouseMove = (e: MouseEvent) => {
-      if (!isDragging || !scrollContainerRef.current) return;
+      if (!isDraggingScrollbar || !scrollContainerRef.current) return;
       
       e.preventDefault();
       
@@ -213,7 +195,6 @@ export const TimelineViewer: FC<TimelineViewerProps> = ({
       const trackWidth = scrollbarTrack.offsetWidth;
       const scrollableWidth = container.scrollWidth - container.clientWidth;
       
-      // Calculate scroll position based on drag distance
       const scrollRatio = deltaX / trackWidth;
       const newScrollLeft = dragStartRef.current.scrollLeft + (scrollRatio * scrollableWidth);
       
@@ -221,10 +202,22 @@ export const TimelineViewer: FC<TimelineViewerProps> = ({
     };
 
     const handleMouseUp = () => {
-      setIsDragging(false);
+      if (isDraggingScrollbar && viewMode === 'frames' && activeScene && scrollContainerRef.current) {
+        // Update frame selection when drag ends
+        const container = scrollContainerRef.current;
+        const centerOfViewport = container.scrollLeft + (container.offsetWidth / 2);
+        const centerFrameRelativeIndex = Math.round(centerOfViewport / FRAME_WIDTH);
+        const centerFrameIndex = activeScene.startFrame + centerFrameRelativeIndex;
+        const clampedIndex = Math.max(activeScene.startFrame, Math.min(activeScene.endFrame, centerFrameIndex));
+        
+        if (clampedIndex !== currentFrameIndex) {
+          onFrameSelect(clampedIndex);
+        }
+      }
+      setIsDraggingScrollbar(false);
     };
 
-    if (isDragging) {
+    if (isDraggingScrollbar) {
       document.addEventListener('mousemove', handleMouseMove);
       document.addEventListener('mouseup', handleMouseUp);
       
@@ -233,12 +226,14 @@ export const TimelineViewer: FC<TimelineViewerProps> = ({
         document.removeEventListener('mouseup', handleMouseUp);
       };
     }
-  }, [isDragging]);
+  }, [isDraggingScrollbar, viewMode, activeScene, currentFrameIndex, onFrameSelect]);
 
-  const handleSceneClick = (scene: Scene) => {
+  const handleSceneClick = useCallback((scene: Scene) => {
     onSceneSelect(scene);
     setViewMode('frames');
-  };
+    // Scroll to first frame of scene
+    setTimeout(() => scrollToFrame(scene.startFrame, 'scene'), 100);
+  }, [onSceneSelect, scrollToFrame]);
 
   const handleShowScenes = () => {
     setViewMode('scenes');
@@ -321,7 +316,10 @@ export const TimelineViewer: FC<TimelineViewerProps> = ({
                   key={frameIndex}
                   className="absolute top-1/2 -translate-y-1/2"
                   style={{ left: `${(frameIndex - activeScene.startFrame) * FRAME_WIDTH}px` }}
-                  onClick={() => onFrameSelect(frameIndex)}
+                  onClick={() => {
+                    onFrameSelect(frameIndex);
+                    scrollToFrame(frameIndex, 'click');
+                  }}
                 >
                    <div className="flex h-[90px] w-[128px] cursor-pointer flex-col items-center justify-center">
                      {dataUrl ? (
@@ -417,7 +415,7 @@ export const TimelineViewer: FC<TimelineViewerProps> = ({
           <div 
             className={cn(
               "absolute top-1/2 -translate-y-1/2 h-3 bg-primary rounded-full shadow-lg shadow-primary/30 transition-colors cursor-grab",
-              isDragging ? "cursor-grabbing bg-primary scale-105" : "hover:bg-primary/80"
+              isDraggingScrollbar ? "cursor-grabbing bg-primary scale-105" : "hover:bg-primary/80"
             )}
             style={{
               width: viewMode === 'frames' && activeScene && scrollContainerRef.current ? 
