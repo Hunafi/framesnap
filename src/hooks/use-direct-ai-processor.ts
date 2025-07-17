@@ -63,8 +63,7 @@ export function useDirectAIProcessor() {
         
         // Schedule automatic retry if under max attempts
         if (currentRetryCount < 3) {
-          // scheduleRetry will be called after it's defined
-          setTimeout(() => scheduleRetry(frameIndex, 'analyze', imageData), 0);
+          scheduleRetry(frameIndex, 'analyze', imageData);
         } else {
           updateFrameState(frameIndex, { 
             error: 'Max retries reached. Please try again later.' 
@@ -85,7 +84,7 @@ export function useDirectAIProcessor() {
       
       // Schedule automatic retry if under max attempts
       if (currentRetryCount < 3) {
-        setTimeout(() => scheduleRetry(frameIndex, 'analyze', imageData), 0);
+        scheduleRetry(frameIndex, 'analyze', imageData);
       } else {
         updateFrameState(frameIndex, { 
           error: 'Max retries reached. Please try again later.' 
@@ -113,7 +112,7 @@ export function useDirectAIProcessor() {
         
         // Schedule automatic retry if under max attempts
         if (currentRetryCount < 3) {
-          setTimeout(() => scheduleRetry(frameIndex, 'prompt', imageData, description), 0);
+          scheduleRetry(frameIndex, 'prompt', imageData, description);
         } else {
           updateFrameState(frameIndex, { 
             error: 'Max retries reached. Please try again later.' 
@@ -134,7 +133,7 @@ export function useDirectAIProcessor() {
       
       // Schedule automatic retry if under max attempts
       if (currentRetryCount < 3) {
-        setTimeout(() => scheduleRetry(frameIndex, 'prompt', imageData, description), 0);
+        scheduleRetry(frameIndex, 'prompt', imageData, description);
       } else {
         updateFrameState(frameIndex, { 
           error: 'Max retries reached. Please try again later.' 
