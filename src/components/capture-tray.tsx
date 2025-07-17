@@ -468,7 +468,11 @@ export const CaptureTray: FC<CaptureTrayProps> = ({ capturedFrames, onClear, onD
                        <div className="flex flex-col items-center gap-2">
                          <div className="relative">
                            <div
-                             className="w-20 h-36 cursor-pointer rounded overflow-hidden border border-border shadow-md bg-muted"
+                              className="cursor-pointer rounded overflow-hidden border border-border shadow-md bg-muted"
+                              style={{
+                                width: videoAspectRatio > 1 ? '128px' : '80px',
+                                height: videoAspectRatio > 1 ? '72px' : '144px'
+                              }}
                              onClick={() => setSelectedFrame({ frameIndex: frame.index, dataUrl: frame.dataUrl })}
                            >
                              <img
