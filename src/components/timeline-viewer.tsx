@@ -117,10 +117,14 @@ export const TimelineViewer: FC<TimelineViewerProps> = ({
       Math.ceil((scrollLeft + clientWidth) / FRAME_WIDTH) + VISIBLE_FRAME_BUFFER
     );
     
-    if (startIndex !== visibleRange.start || endIndex !== visibleRange.end) {
-        setVisibleRange({ start: startIndex, end: endIndex });
-    }
-  }, [viewMode, activeScene, timelineFrames, visibleRange.start, visibleRange.end]);
+    setVisibleRange(prev => {
+      // Only update if there's a meaningful change to prevent constant re-renders
+      if (Math.abs(startIndex - prev.start) > 2 || Math.abs(endIndex - prev.end) > 2) {
+        return { start: startIndex, end: endIndex };
+      }
+      return prev;
+    });
+  }, [viewMode, activeScene, timelineFrames]);
   
   // Initial visible range calculation and immediate first frame loading
   useEffect(() => {
@@ -148,35 +152,64 @@ export const TimelineViewer: FC<TimelineViewerProps> = ({
      return [];
   }, [viewMode, timelineFrames, visibleRange]);
   
-  // Pre-fetch individual frame thumbnails when in frame view
+  // Pre-fetch individual frame thumbnails when in frame view with better stability
   useEffect(() => {
     let isCancelled = false;
+    
     const loadVisibleFrames = async () => {
-      const framesToLoad = visibleFrames.filter(frameIndex => !frameCache.has(frameIndex));
+      if (visibleFrames.length === 0) return;
+      
+      // Create a stable copy of current cache to avoid race conditions
+      const currentCache = new Map(frameCache);
+      const framesToLoad = visibleFrames.filter(frameIndex => !currentCache.has(frameIndex));
+      
       if (framesToLoad.length === 0) return;
 
-      const newCache = new Map(frameCache);
-       for (const frameIndex of framesToLoad) {
-          if (isCancelled) return;
+      // Load frames in small batches to prevent overwhelming
+      const batchSize = 3;
+      for (let i = 0; i < framesToLoad.length; i += batchSize) {
+        if (isCancelled) return;
+        
+        const batch = framesToLoad.slice(i, i + batchSize);
+        const batchPromises = batch.map(async (frameIndex) => {
+          if (isCancelled) return null;
+          
           try {
-              const dataUrl = await getFrameDataUrl(frameIndex, 0.5);
-              if (dataUrl && !isCancelled) {
-                  newCache.set(frameIndex, dataUrl);
-                  // Re-render to show progress
-                  setFrameCache(new Map(newCache));
-              }
+            const dataUrl = await getFrameDataUrl(frameIndex, 0.5);
+            if (dataUrl && !isCancelled) {
+              return { frameIndex, dataUrl };
+            }
           } catch(e) {
-              if(!isCancelled) console.error(`Could not fetch thumbnail for frame ${frameIndex}`, e)
+            if (!isCancelled) console.error(`Could not fetch thumbnail for frame ${frameIndex}`, e);
           }
+          return null;
+        });
+        
+        const results = await Promise.allSettled(batchPromises);
+        
+        if (!isCancelled) {
+          setFrameCache(prev => {
+            const newCache = new Map(prev);
+            results.forEach(result => {
+              if (result.status === 'fulfilled' && result.value) {
+                newCache.set(result.value.frameIndex, result.value.dataUrl);
+              }
+            });
+            return newCache;
+          });
+        }
+        
+        // Small delay between batches to prevent blocking
+        await new Promise(resolve => setTimeout(resolve, 50));
       }
     };
 
-    if(visibleFrames.length > 0) {
+    if (visibleFrames.length > 0 && viewMode === 'frames') {
       loadVisibleFrames();
     }
 
     return () => { isCancelled = true; }
-  }, [visibleFrames, getFrameDataUrl, frameCache]);
+  }, [visibleFrames, getFrameDataUrl, viewMode]); // Removed frameCache dependency to prevent unnecessary re-runs
 
 
   useEffect(() => {

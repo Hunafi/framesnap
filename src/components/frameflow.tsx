@@ -218,7 +218,7 @@ export function FrameFlow() {
         }
     }, [getDownsampledFrameData]);
 
-    // Advanced scene detection with timeout protection
+    // Advanced scene detection with improved sensitivity
     const performAdvancedSceneDetection = async (
         video: HTMLVideoElement, 
         canvas: HTMLCanvasElement, 
@@ -228,9 +228,9 @@ export function FrameFlow() {
         const frameDiffs: number[] = [];
         const histogramDiffs: number[] = [];
 
-        // Sample every 1 second for faster processing on long videos
-        const frameStep = Math.max(Math.floor(FPS * 0.8), 15); // At least 15 frames between samples
-        const maxSamples = Math.min(50, Math.floor(totalFramesInVideo / frameStep)); // Limit to 50 samples max
+        // Sample every 0.5 seconds for better scene detection accuracy
+        const frameStep = Math.max(Math.floor(FPS * 0.5), 8); // Every 0.5 seconds, minimum 8 frames
+        const maxSamples = Math.min(120, Math.floor(totalFramesInVideo / frameStep)); // Up to 120 samples (1 minute of analysis)
         
         // Set initial position
         video.currentTime = 0;
@@ -239,7 +239,7 @@ export function FrameFlow() {
         let prevFrameData = await getDownsampledFrameData(video, canvas);
         let prevHistogram = calculateHistogram(prevFrameData);
 
-        // Process samples with timeout protection
+        // Process samples with improved error handling
         for (let sampleIndex = 1; sampleIndex < maxSamples; sampleIndex++) {
             const frameIndex = sampleIndex * frameStep;
             if (frameIndex >= totalFramesInVideo) break;
@@ -250,21 +250,22 @@ export function FrameFlow() {
                 const currentFrameData = await getDownsampledFrameData(video, canvas);
                 const currentHistogram = calculateHistogram(currentFrameData);
                 
-                // Calculate differences
-                let pixelDiff = 0;
+                // Calculate pixel difference (edge detection)
+                let edgeDiff = 0;
                 for (let j = 0; j < currentFrameData.length; j += 4) {
                     const rDiff = Math.abs(currentFrameData[j] - prevFrameData[j]);
                     const gDiff = Math.abs(currentFrameData[j + 1] - prevFrameData[j + 1]);
                     const bDiff = Math.abs(currentFrameData[j + 2] - prevFrameData[j + 2]);
-                    pixelDiff += (rDiff + gDiff + bDiff) / 3;
+                    edgeDiff += (rDiff + gDiff + bDiff) / 3;
                 }
                 
+                // Calculate histogram difference (color distribution changes)
                 let histDiff = 0;
                 for (let k = 0; k < 256; k++) {
                     histDiff += Math.abs(currentHistogram[k] - prevHistogram[k]);
                 }
                 
-                frameDiffs.push(pixelDiff);
+                frameDiffs.push(edgeDiff);
                 histogramDiffs.push(histDiff);
                 
                 prevFrameData = currentFrameData;
@@ -276,22 +277,28 @@ export function FrameFlow() {
             }
         }
 
-        // Detect scene boundaries
+        // More sensitive scene detection with multiple criteria
         const sceneCuts: number[] = [0];
-        const windowSize = Math.max(2, Math.floor(histogramDiffs.length / 10));
+        const windowSize = Math.max(2, Math.floor(histogramDiffs.length / 15)); // Smaller window for more sensitivity
         
         for (let i = windowSize; i < histogramDiffs.length - windowSize; i++) {
             const window = histogramDiffs.slice(i - windowSize, i + windowSize);
             const mean = window.reduce((a, b) => a + b, 0) / window.length;
             const stdDev = Math.sqrt(window.map(x => Math.pow(x - mean, 2)).reduce((a, b) => a + b) / window.length);
             
-            const threshold = mean + stdDev * 2.0;
-            const minThreshold = 30000;
+            // More sensitive thresholds
+            const histThreshold = mean + stdDev * 1.8; // Reduced from 2.0
+            const edgeThreshold = mean + stdDev * 1.5; // Additional edge-based detection
+            const minHistThreshold = 20000; // Reduced minimum threshold
+            const minEdgeThreshold = 15000;
             
-            if (histogramDiffs[i] > Math.max(threshold, minThreshold)) {
+            const histogramTriggered = histogramDiffs[i] > Math.max(histThreshold, minHistThreshold);
+            const edgeTriggered = frameDiffs[i] > Math.max(edgeThreshold, minEdgeThreshold);
+            
+            if (histogramTriggered || edgeTriggered) {
                 const frameIndex = (i + 1) * frameStep;
                 const lastCut = sceneCuts[sceneCuts.length - 1] ?? 0;
-                const minSceneDuration = FPS * 3; // 3 seconds minimum
+                const minSceneDuration = FPS * 1.5; // Reduced to 1.5 seconds for more scenes
                 
                 if (frameIndex - lastCut > minSceneDuration) {
                     sceneCuts.push(frameIndex);
@@ -299,7 +306,7 @@ export function FrameFlow() {
             }
         }
         
-        // Create scenes
+        // Create scenes with better boundaries
         const newScenes: Scene[] = [];
         for (let i = 0; i < sceneCuts.length; i++) {
             const start = sceneCuts[i];
@@ -308,6 +315,31 @@ export function FrameFlow() {
             if (end > start) {
                 newScenes.push({ startFrame: start, endFrame: end });
             }
+        }
+        
+        // If still too few scenes, add time-based fallback scenes
+        if (newScenes.length < 3 && duration > 10) {
+            const additionalScenes: Scene[] = [];
+            const segmentDuration = Math.max(FPS * 4, Math.floor(totalFramesInVideo / 8)); // 4-second segments or 8 total segments
+            
+            for (let i = 0; i < totalFramesInVideo; i += segmentDuration) {
+                const start = i;
+                const end = Math.min(i + segmentDuration - 1, totalFramesInVideo - 1);
+                
+                // Only add if not overlapping with existing scenes
+                const overlaps = newScenes.some(scene => 
+                    (start >= scene.startFrame && start <= scene.endFrame) ||
+                    (end >= scene.startFrame && end <= scene.endFrame)
+                );
+                
+                if (!overlaps && end > start) {
+                    additionalScenes.push({ startFrame: start, endFrame: end });
+                }
+            }
+            
+            // Merge and sort all scenes
+            const allScenes = [...newScenes, ...additionalScenes].sort((a, b) => a.startFrame - b.startFrame);
+            return allScenes;
         }
         
         // Reset video position
