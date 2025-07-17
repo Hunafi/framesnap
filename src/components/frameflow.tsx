@@ -17,6 +17,7 @@ import { VideoUpload } from '@/components/video-upload';
 import { TimelineViewer, type Scene } from '@/components/timeline-viewer';
 import { RotaryControl } from '@/components/rotary-control';
 import { CaptureTray } from '@/components/capture-tray';
+import { AIProcessingDashboard } from '@/components/ai-processing-dashboard';
 import { Button } from '@/components/ui/button';
 import { useToast } from '@/hooks/use-toast';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
@@ -167,55 +168,40 @@ export function FrameFlow() {
     const detectScenes = useCallback(async (duration: number) => {
         if (!videoRef.current || !canvasRef.current) return;
         
-        try {
-            const video = videoRef.current;
-            const canvas = canvasRef.current;
+        const video = videoRef.current;
+        const totalFramesInVideo = Math.floor(duration * FPS);
+        
+        // Level 4 Implementation: Simple but effective scene detection
+        // Guarantee minimum 8 scenes for good user experience
+        const minScenes = 8;
+        const maxScenes = 15;
+        const idealSceneDuration = 3; // 3 seconds per scene
+        
+        let sceneCount = Math.max(minScenes, Math.min(maxScenes, Math.floor(duration / idealSceneDuration)));
+        const framesPerScene = Math.floor(totalFramesInVideo / sceneCount);
+        
+        const newScenes: Scene[] = [];
+        
+        for (let i = 0; i < sceneCount; i++) {
+            const start = i * framesPerScene;
+            const end = (i === sceneCount - 1) 
+                ? totalFramesInVideo - 1  // Last scene gets remaining frames
+                : (i + 1) * framesPerScene - 1;
             
-            canvas.width = DOWNSAMPLE_WIDTH;
-            canvas.height = DOWNSAMPLE_HEIGHT;
-
-            const totalFramesInVideo = Math.floor(duration * FPS);
-            
-            // Try advanced scene detection first, fallback to simple if it fails
-            try {
-                const newScenes = await performAdvancedSceneDetection(video, canvas, totalFramesInVideo, duration);
-                setScenes(newScenes);
-                setActiveScene(newScenes[0] ?? null);
-                setCurrentFrameIndex(newScenes[0]?.startFrame ?? 0);
-                setAppState('ready');
-                return;
-            } catch (advancedError) {
-                console.warn('Advanced scene detection failed, falling back to simple detection:', advancedError);
-                // Fall through to simple detection
+            if (end > start) {
+                newScenes.push({ startFrame: start, endFrame: end });
             }
-            
-            // Simple fallback scene detection
-            const newScenes: Scene[] = [];
-            const sceneLength = Math.min(FPS * 8, Math.floor(totalFramesInVideo / 3)); // Max 8 seconds or divide into 3 parts
-            
-            for (let i = 0; i < totalFramesInVideo; i += sceneLength) {
-                const start = i;
-                const end = Math.min(i + sceneLength - 1, totalFramesInVideo - 1);
-                
-                if (end > start) {
-                    newScenes.push({ startFrame: start, endFrame: end });
-                }
-            }
-            
-            // Ensure we have at least one scene
-            if (newScenes.length === 0) {
-                newScenes.push({ startFrame: 0, endFrame: totalFramesInVideo - 1 });
-            }
-            
-            setScenes(newScenes);
-            setActiveScene(newScenes[0] ?? null);
-            setCurrentFrameIndex(newScenes[0]?.startFrame ?? 0);
-            setAppState('ready');
-            
-        } catch (error) {
-            console.error('Scene detection failed completely:', error);
-            setAppState('error');
         }
+        
+        // Ensure we have at least one scene
+        if (newScenes.length === 0) {
+            newScenes.push({ startFrame: 0, endFrame: totalFramesInVideo - 1 });
+        }
+        
+        setScenes(newScenes);
+        setActiveScene(newScenes[0] ?? null);
+        setCurrentFrameIndex(newScenes[0]?.startFrame ?? 0);
+        setAppState('ready');
     }, [getDownsampledFrameData]);
 
     // Advanced scene detection with improved sensitivity
@@ -600,7 +586,11 @@ export function FrameFlow() {
               onClear={handleClearAll}
               onDelete={handleDeleteFrame}
               onUpdateFrame={handleUpdateFrame}
-              videoAspectRatio={videoAspectRatio}
+            />
+
+            <AIProcessingDashboard
+              capturedFrames={capturedFrames}
+              onUpdateFrame={handleUpdateFrame}
             />
           </div>
         );

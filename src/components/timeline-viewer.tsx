@@ -54,58 +54,79 @@ export const TimelineViewer: FC<TimelineViewerProps> = ({
   }, [viewMode, activeScene]);
 
 
-  // Pre-fetch scene thumbnails and first few frames sequentially
+  // Level 4 Implementation: Simple and immediate frame loading
   useEffect(() => {
     let isCancelled = false;
 
-    const loadSceneThumbs = async () => {
-        const newCache = new Map(frameCache);
-        
-        // First, load all scene start frames (highest priority)
-        for (const scene of scenes) {
-            if (isCancelled) return;
-            if (!newCache.has(scene.startFrame)) {
-                try {
-                    const dataUrl = await getFrameDataUrl(scene.startFrame, 0.6);
-                    if (dataUrl && !isCancelled) {
-                        newCache.set(scene.startFrame, dataUrl);
-                        setFrameCache(new Map(newCache));
-                    }
-                } catch(e) {
-                    if (!isCancelled) console.error(`Could not fetch thumbnail for scene at frame ${scene.startFrame}`, e)
-                }
-            }
-        }
-        
-        // Then preload first 5 frames of the first scene for smoother initial experience
-        if (scenes.length > 0 && !isCancelled) {
-            const firstScene = scenes[0];
-            const framesToPreload = Math.min(5, firstScene.endFrame - firstScene.startFrame + 1);
-            
-            for (let i = 0; i < framesToPreload; i++) {
+    const loadFrames = async () => {
+        if (viewMode === 'scenes') {
+            // Load scene thumbnails - immediate sequential loading
+            for (const scene of scenes) {
                 if (isCancelled) return;
-                const frameIndex = firstScene.startFrame + i;
-                if (!newCache.has(frameIndex)) {
+                if (!frameCache.has(scene.startFrame)) {
                     try {
-                        const dataUrl = await getFrameDataUrl(frameIndex, 0.5);
+                        const dataUrl = await getFrameDataUrl(scene.startFrame, 0.6);
                         if (dataUrl && !isCancelled) {
-                            newCache.set(frameIndex, dataUrl);
-                            setFrameCache(new Map(newCache));
+                            setFrameCache(prev => new Map(prev.set(scene.startFrame, dataUrl)));
                         }
                     } catch(e) {
-                        if (!isCancelled) console.error(`Could not preload frame ${frameIndex}`, e)
+                        if (!isCancelled) console.error(`Failed to load scene ${scene.startFrame}:`, e);
+                    }
+                }
+            }
+        } else if (viewMode === 'frames' && activeScene) {
+            // Load frame thumbnails - start from current position, expand outward
+            const centerFrame = currentFrameIndex;
+            const sceneStart = activeScene.startFrame;
+            const sceneEnd = activeScene.endFrame;
+            
+            // Load current frame first
+            if (!frameCache.has(centerFrame)) {
+                try {
+                    const dataUrl = await getFrameDataUrl(centerFrame, 0.5);
+                    if (dataUrl && !isCancelled) {
+                        setFrameCache(prev => new Map(prev.set(centerFrame, dataUrl)));
+                    }
+                } catch(e) {
+                    if (!isCancelled) console.error(`Failed to load frame ${centerFrame}:`, e);
+                }
+            }
+            
+            // Then load surrounding frames
+            for (let distance = 1; distance <= 10; distance++) {
+                if (isCancelled) return;
+                
+                const leftFrame = centerFrame - distance;
+                const rightFrame = centerFrame + distance;
+                
+                if (leftFrame >= sceneStart && !frameCache.has(leftFrame)) {
+                    try {
+                        const dataUrl = await getFrameDataUrl(leftFrame, 0.5);
+                        if (dataUrl && !isCancelled) {
+                            setFrameCache(prev => new Map(prev.set(leftFrame, dataUrl)));
+                        }
+                    } catch(e) {
+                        if (!isCancelled) console.error(`Failed to load frame ${leftFrame}:`, e);
+                    }
+                }
+                
+                if (rightFrame <= sceneEnd && !frameCache.has(rightFrame)) {
+                    try {
+                        const dataUrl = await getFrameDataUrl(rightFrame, 0.5);
+                        if (dataUrl && !isCancelled) {
+                            setFrameCache(prev => new Map(prev.set(rightFrame, dataUrl)));
+                        }
+                    } catch(e) {
+                        if (!isCancelled) console.error(`Failed to load frame ${rightFrame}:`, e);
                     }
                 }
             }
         }
-    }
+    };
     
-    if(scenes.length > 0 && viewMode === 'scenes') {
-        loadSceneThumbs();
-    }
-
-    return () => { isCancelled = true; }
-  }, [scenes, getFrameDataUrl, viewMode]);
+    loadFrames();
+    return () => { isCancelled = true; };
+  }, [scenes, viewMode, activeScene, currentFrameIndex, getFrameDataUrl]);
 
   const updateVisibleRange = useCallback(() => {
     if (!scrollContainerRef.current || viewMode !== 'frames' || !activeScene) return;
