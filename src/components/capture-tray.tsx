@@ -464,23 +464,23 @@ export const CaptureTray: FC<CaptureTrayProps> = ({ capturedFrames, onClear, onD
               <TableBody>
                 {capturedFrames.map((frame) => (
                   <TableRow key={frame.index}>
-                     <TableCell className="p-2">
-                       <div className="flex flex-col items-center gap-2">
-                         <div 
-                           className="w-20 h-20 cursor-pointer"
-                           onClick={() => setSelectedFrame({ frameIndex: frame.index, dataUrl: frame.dataUrl })}
-                         >
-                           <AspectRatio ratio={videoAspectRatio} className="w-full h-full">
+                     <TableCell className="p-2 align-middle">
+                       <div className="flex items-center gap-3">
+                         <div className="relative flex-shrink-0">
+                           <div
+                             className="w-16 h-12 cursor-pointer rounded overflow-hidden"
+                             onClick={() => setSelectedFrame({ frameIndex: frame.index, dataUrl: frame.dataUrl })}
+                           >
                              <img
                                src={frame.dataUrl}
                                alt={`Frame ${frame.index}`}
-                               className="w-full h-full object-cover rounded shadow-sm hover:opacity-80 transition-opacity"
+                               className="w-full h-full object-cover hover:opacity-80 transition-opacity"
                              />
-                           </AspectRatio>
+                           </div>
+                           <Badge variant="secondary" className="absolute -top-1 -right-1 text-xs px-1.5 py-0.5">
+                             #{frame.index}
+                           </Badge>
                          </div>
-                         <Badge variant="secondary" className="text-xs">
-                           #{frame.index}
-                         </Badge>
                        </div>
                      </TableCell>
                     <TableCell className="p-2">
