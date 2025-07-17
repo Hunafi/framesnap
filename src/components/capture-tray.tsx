@@ -13,7 +13,10 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { Badge } from '@/components/ui/badge';
 import { Progress } from '@/components/ui/progress';
 import { useToast } from '@/hooks/use-toast';
-import { useAIBatchAnalysis } from '@/hooks/use-ai-batch-analysis';
+import { useSmartAIProcessor } from '@/hooks/use-smart-ai-processor';
+import { useTokenBudgetManager } from '@/hooks/use-token-budget-manager';
+import { useAdvancedRequestManager } from '@/hooks/use-advanced-request-manager';
+import { AIProcessingDashboard } from './ai-processing-dashboard';
 import { CopyableTextarea } from './copyable-textarea';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from './ui/dialog';
 import { AspectRatio } from './ui/aspect-ratio';
@@ -36,36 +39,26 @@ export const CaptureTray: FC<CaptureTrayProps> = ({ capturedFrames, onClear, onD
   const [editingField, setEditingField] = useState<string | null>(null);
   const [selectedFrame, setSelectedFrame] = useState<{ frameIndex: number; dataUrl: string } | null>(null);
   const { toast } = useToast();
-  const { 
-    analyzeFrame, 
-    generatePrompt, 
-    analyzeAllFrames, 
-    generateAllPrompts, 
-    stopFrameProcessing,
-    retryFrame,
-    cancelBatchOperation,
-    pauseBatchOperation,
-    resumeBatchOperation,
-    getFrameState, 
-    batchProgress,
-    clearFrameState 
-  } = useAIBatchAnalysis();
+  const smartProcessor = useSmartAIProcessor();
+  const tokenManager = useTokenBudgetManager();
+  const requestManager = useAdvancedRequestManager();
 
   const handleAnalyzeFrame = async (frame: CapturedFrame) => {
     try {
-      const description = await analyzeFrame(frame.index, frame.dataUrl);
-      if (description) {
-        onUpdateFrame(frame.index, { aiDescription: description });
+      await smartProcessor.processFrames([
+        { index: frame.index, dataUrl: frame.dataUrl, operation: 'analyze' }
+      ]);
+      
+      // Check if processing completed successfully
+      const frameState = smartProcessor.getFrameState(frame.index);
+      if (!frameState.error && !frameState.isAnalyzing) {
         toast({ title: 'Frame analyzed successfully!' });
-      } else {
-        const frameState = getFrameState(frame.index);
-        if (frameState.error) {
-          toast({
-            title: 'Analysis Failed',
-            description: frameState.error,
-            variant: 'destructive',
-          });
-        }
+      } else if (frameState.error) {
+        toast({
+          title: 'Analysis Failed',
+          description: frameState.error,
+          variant: 'destructive',
+        });
       }
     } catch (error) {
       toast({
@@ -78,19 +71,20 @@ export const CaptureTray: FC<CaptureTrayProps> = ({ capturedFrames, onClear, onD
 
   const handleGeneratePrompt = async (frame: CapturedFrame) => {
     try {
-      const prompt = await generatePrompt(frame.index, frame.dataUrl, frame.aiDescription);
-      if (prompt) {
-        onUpdateFrame(frame.index, { aiPrompt: prompt });
+      await smartProcessor.processFrames([
+        { index: frame.index, dataUrl: frame.dataUrl, operation: 'prompt', imageDescription: frame.aiDescription }
+      ]);
+      
+      // Check if processing completed successfully
+      const frameState = smartProcessor.getFrameState(frame.index);
+      if (!frameState.error && !frameState.isGeneratingPrompt) {
         toast({ title: 'AI prompt generated successfully!' });
-      } else {
-        const frameState = getFrameState(frame.index);
-        if (frameState.error) {
-          toast({
-            title: 'Prompt Generation Failed',
-            description: frameState.error,
-            variant: 'destructive',
-          });
-        }
+      } else if (frameState.error) {
+        toast({
+          title: 'Prompt Generation Failed',
+          description: frameState.error,
+          variant: 'destructive',
+        });
       }
     } catch (error) {
       toast({
@@ -103,51 +97,37 @@ export const CaptureTray: FC<CaptureTrayProps> = ({ capturedFrames, onClear, onD
 
   const handleAnalyzeAll = async () => {
     const framesToAnalyze = capturedFrames
-      .filter(f => !f.aiDescription && !getFrameState(f.index).isAnalyzing)
-      .map(f => ({ index: f.index, dataUrl: f.dataUrl }));
+      .filter(f => !f.aiDescription && !smartProcessor.getFrameState(f.index).isAnalyzing)
+      .map(f => ({ index: f.index, dataUrl: f.dataUrl, operation: 'analyze' as const }));
     
     if (framesToAnalyze.length === 0) {
       toast({ title: 'No frames to analyze', description: 'All frames already have descriptions.' });
       return;
     }
 
-    await analyzeAllFrames(framesToAnalyze);
+    await smartProcessor.processFrames(framesToAnalyze);
     
-    // Update frames with results
-    framesToAnalyze.forEach(frame => {
-      const frameState = getFrameState(frame.index);
-      if (!frameState.isAnalyzing && !frameState.error) {
-        // Frame was processed successfully, we need to check the actual result in the callback
-        setTimeout(() => {
-          const capturedFrame = capturedFrames.find(f => f.index === frame.index);
-          if (capturedFrame?.aiDescription) {
-            // Success case is handled in the individual frame callback
-          }
-        }, 100);
-      }
-    });
-
     toast({ 
-      title: 'Batch Analysis Complete', 
-      description: `Processed ${framesToAnalyze.length} frames. Check progress below.` 
+      title: 'Batch Analysis Started', 
+      description: `Processing ${framesToAnalyze.length} frames with smart AI system.` 
     });
   };
 
   const handleGenerateAllPrompts = async () => {
     const framesToProcess = capturedFrames
-      .filter(f => !f.aiPrompt && !getFrameState(f.index).isGeneratingPrompt)
-      .map(f => ({ index: f.index, dataUrl: f.dataUrl, aiDescription: f.aiDescription }));
+      .filter(f => !f.aiPrompt && !smartProcessor.getFrameState(f.index).isGeneratingPrompt)
+      .map(f => ({ index: f.index, dataUrl: f.dataUrl, operation: 'prompt' as const, imageDescription: f.aiDescription }));
     
     if (framesToProcess.length === 0) {
       toast({ title: 'No frames to process', description: 'All frames already have AI prompts.' });
       return;
     }
 
-    await generateAllPrompts(framesToProcess);
+    await smartProcessor.processFrames(framesToProcess);
     
     toast({ 
-      title: 'Batch Prompt Generation Complete', 
-      description: `Processed ${framesToProcess.length} frames. Check progress below.` 
+      title: 'Batch Prompt Generation Started', 
+      description: `Processing ${framesToProcess.length} frames with smart AI system.` 
     });
   };
 
@@ -457,137 +437,97 @@ export const CaptureTray: FC<CaptureTrayProps> = ({ capturedFrames, onClear, onD
     }
   };
 
-  return (
-    <Card className="w-full bg-card/95 mt-4">
-      <CardHeader className="flex flex-row items-center justify-between gap-4">
-        <CardTitle>AI Frame Analysis ({capturedFrames.length} frames)</CardTitle>
-        <div className="flex flex-shrink-0 items-center gap-2">
-          {batchProgress.isRunning && (
-            <Button 
-              variant="outline" 
-              size="sm" 
-              onClick={cancelBatchOperation}
-              disabled={!batchProgress.canCancel}
-            >
-              <XCircle className="mr-2 h-4 w-4" />
-              Cancel
-            </Button>
-          )}
-          <Button variant="outline" size="sm" onClick={onClear} disabled={capturedFrames.length === 0 || batchProgress.isRunning}>
-            <Trash2 className="mr-2 h-4 w-4" />
-            Clear All
-          </Button>
-          <Button onClick={handleExport} disabled={isExporting || capturedFrames.length === 0 || batchProgress.isRunning} size="sm">
-              {isExporting ? (
-              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-              ) : (
-              <FileDown className="mr-2 h-4 w-4" />
-              )}
-              Export {exportFormat.toUpperCase()}
-          </Button>
-        </div>
-      </CardHeader>
-      <CardContent>
-        {/* Enhanced Batch Progress Indicator */}
-        {batchProgress.isRunning && (
-          <div className="mb-4 rounded-lg border bg-muted/50 p-4">
-            <div className="flex items-center justify-between mb-2">
-              <div className="flex items-center gap-2">
-                <Loader2 className="h-4 w-4 animate-spin" />
-                <span className="text-sm font-medium">{batchProgress.currentOperation}</span>
-              </div>
-              <div className="flex items-center gap-2">
-                <Badge variant="outline">
-                  {batchProgress.completed + batchProgress.failed + batchProgress.cached}/{batchProgress.total}
-                </Badge>
-                <Button
-                  variant="outline"
-                  size="icon"
-                  onClick={pauseBatchOperation}
-                  className="h-8 w-8"
-                  title="Pause batch operation"
-                >
-                  <Pause className="h-4 w-4" />
-                </Button>
-              </div>
-            </div>
-            <Progress 
-              value={(batchProgress.completed + batchProgress.failed + batchProgress.cached) / batchProgress.total * 100} 
-              className="mb-2" 
-            />
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-4 text-xs text-muted-foreground">
-                <span className="flex items-center gap-1">
-                  <CheckCircle className="h-3 w-3 text-green-500" />
-                  {batchProgress.completed} completed
-                </span>
-                {batchProgress.cached > 0 && (
-                  <span className="flex items-center gap-1">
-                    <Hash className="h-3 w-3 text-blue-500" />
-                    {batchProgress.cached} from cache
-                  </span>
-                )}
-                {batchProgress.failed > 0 && (
-                  <span className="flex items-center gap-1">
-                    <XCircle className="h-3 w-3 text-red-500" />
-                    {batchProgress.failed} failed
-                  </span>
-                )}
-              </div>
-              {batchProgress.estimatedTimeRemaining > 0 && (
-                <div className="flex items-center gap-1 text-xs text-muted-foreground">
-                  <Clock className="h-3 w-3" />
-                  {Math.round(batchProgress.estimatedTimeRemaining / 1000)}s remaining
-                </div>
-              )}
-            </div>
-          </div>
-        )}
+  const progress = smartProcessor.getProgress();
 
-        <div className="mb-4 flex flex-wrap items-center gap-2">
-          <Button 
-            onClick={handleAnalyzeAll} 
-            variant="outline" 
-            size="sm"
-            disabled={
-              capturedFrames.length === 0 || 
-              batchProgress.isRunning ||
-              capturedFrames.every(f => f.aiDescription || getFrameState(f.index).isAnalyzing)
-            }
-          >
-            <Brain className="mr-2 h-4 w-4" />
-            Analyze All Frames
-          </Button>
-          <Button 
-            onClick={handleGenerateAllPrompts} 
-            variant="outline" 
-            size="sm"
-            disabled={
-              capturedFrames.length === 0 || 
-              batchProgress.isRunning ||
-              capturedFrames.every(f => f.aiPrompt || getFrameState(f.index).isGeneratingPrompt)
-            }
-          >
-            <Sparkles className="mr-2 h-4 w-4" />
-            Generate All Prompts
-          </Button>
-          <div className="ml-auto flex items-center gap-2">
-            <Select 
-              value={exportFormat} 
-              onValueChange={(value: ExportFormat) => setExportFormat(value)}
-              disabled={batchProgress.isRunning}
-            >
-              <SelectTrigger className="w-24">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="zip">ZIP</SelectItem>
-                <SelectItem value="pdf">PDF</SelectItem>
-                <SelectItem value="docx">DOCX</SelectItem>
-              </SelectContent>
-            </Select>
+  return (
+    <div className="space-y-4 mt-4">
+      {/* Level 3 AI Processing Dashboard */}
+      {progress.phase !== 'idle' && (
+        <AIProcessingDashboard
+          progress={progress}
+          tokenManager={tokenManager}
+          requestManager={requestManager}
+          onPause={smartProcessor.pauseProcessing}
+          onResume={smartProcessor.resumeProcessing}
+          onStop={smartProcessor.stopProcessing}
+          onRetryFailed={smartProcessor.retryFailedFrames}
+          onProfileChange={smartProcessor.setQualityProfile}
+        />
+      )}
+
+      <Card className="w-full bg-card/95">
+        <CardHeader className="flex flex-row items-center justify-between gap-4">
+          <CardTitle>AI Frame Analysis ({capturedFrames.length} frames)</CardTitle>
+          <div className="flex flex-shrink-0 items-center gap-2">
+            {progress.phase === 'processing' && (
+              <Button 
+                variant="outline" 
+                size="sm" 
+                onClick={smartProcessor.stopProcessing}
+              >
+                <XCircle className="mr-2 h-4 w-4" />
+                Stop
+              </Button>
+            )}
+            <Button variant="outline" size="sm" onClick={onClear} disabled={capturedFrames.length === 0 || progress.phase === 'processing'}>
+              <Trash2 className="mr-2 h-4 w-4" />
+              Clear All
+            </Button>
+            <Button onClick={handleExport} disabled={isExporting || capturedFrames.length === 0 || progress.phase === 'processing'} size="sm">
+                {isExporting ? (
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                ) : (
+                <FileDown className="mr-2 h-4 w-4" />
+                )}
+                Export {exportFormat.toUpperCase()}
+            </Button>
           </div>
-        </div>
+        </CardHeader>
+        <CardContent>
+          <div className="mb-4 flex flex-wrap items-center gap-2">
+            <Button 
+              onClick={handleAnalyzeAll} 
+              variant="outline" 
+              size="sm"
+              disabled={
+                capturedFrames.length === 0 || 
+                progress.phase === 'processing' ||
+                capturedFrames.every(f => f.aiDescription || smartProcessor.getFrameState(f.index).isAnalyzing)
+              }
+            >
+              <Brain className="mr-2 h-4 w-4" />
+              Analyze All Frames
+            </Button>
+            <Button 
+              onClick={handleGenerateAllPrompts} 
+              variant="outline" 
+              size="sm"
+              disabled={
+                capturedFrames.length === 0 || 
+                progress.phase === 'processing' ||
+                capturedFrames.every(f => f.aiPrompt || smartProcessor.getFrameState(f.index).isGeneratingPrompt)
+              }
+            >
+              <Sparkles className="mr-2 h-4 w-4" />
+              Generate All Prompts
+            </Button>
+            <div className="ml-auto flex items-center gap-2">
+              <Select 
+                value={exportFormat} 
+                onValueChange={(value: ExportFormat) => setExportFormat(value)}
+                disabled={progress.phase === 'processing'}
+              >
+                <SelectTrigger className="w-24">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="zip">ZIP</SelectItem>
+                  <SelectItem value="pdf">PDF</SelectItem>
+                  <SelectItem value="docx">DOCX</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
 
         {capturedFrames.length > 0 ? (
           <div className="rounded-md border">
@@ -602,7 +542,7 @@ export const CaptureTray: FC<CaptureTrayProps> = ({ capturedFrames, onClear, onD
               </TableHeader>
               <TableBody>
                 {capturedFrames.map((frame) => {
-                  const frameState = getFrameState(frame.index);
+                  const frameState = smartProcessor.getFrameState(frame.index);
                   return (
                     <TableRow key={frame.index}>
                        <TableCell className="p-3">
@@ -648,17 +588,17 @@ export const CaptureTray: FC<CaptureTrayProps> = ({ capturedFrames, onClear, onD
                                       <Hash className="h-3 w-3 text-blue-500" />
                                     )}
                                  </div>
-                                 {frameState.canStop && (
-                                   <Button
-                                     variant="ghost"
-                                     size="icon"
-                                     onClick={() => stopFrameProcessing(frame.index)}
-                                     className="h-6 w-6"
-                                     title="Stop analysis"
-                                   >
-                                     <StopCircle className="h-3 w-3" />
-                                   </Button>
-                                 )}
+                                  {frameState.canStop && (
+                                    <Button
+                                      variant="ghost"
+                                      size="icon"
+                                      onClick={() => smartProcessor.stopProcessing()}
+                                      className="h-6 w-6"
+                                      title="Stop analysis"
+                                    >
+                                      <StopCircle className="h-3 w-3" />
+                                    </Button>
+                                  )}
                                </div>
                              </div>
                            ) : frame.aiDescription ? (
@@ -680,9 +620,9 @@ export const CaptureTray: FC<CaptureTrayProps> = ({ capturedFrames, onClear, onD
                                <Button
                                  variant="outline"
                                  size="sm"
-                                 onClick={() => handleAnalyzeFrame(frame)}
-                                 className="w-full"
-                                 disabled={batchProgress.isRunning}
+                                  onClick={() => handleAnalyzeFrame(frame)}
+                                  className="w-full"
+                                  disabled={progress.phase === 'processing'}
                                >
                                  {frameState.error ? (
                                    <RefreshCw className="mr-2 h-4 w-4 text-orange-500" />
@@ -699,15 +639,15 @@ export const CaptureTray: FC<CaptureTrayProps> = ({ capturedFrames, onClear, onD
                                  <AlertCircle className="h-3 w-3" />
                                  {frameState.error}
                                </div>
-                               <Button
-                                 variant="ghost"
-                                 size="sm"
-                                 onClick={() => retryFrame(frame.index, frame.dataUrl, 'analyze')}
-                                 className="h-6 text-xs"
-                               >
-                                 <RefreshCw className="mr-1 h-3 w-3" />
-                                 Retry
-                               </Button>
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  onClick={() => handleAnalyzeFrame(frame)}
+                                  className="h-6 text-xs"
+                                >
+                                  <RefreshCw className="mr-1 h-3 w-3" />
+                                  Retry
+                                </Button>
                              </div>
                            )}
                          </div>
@@ -721,17 +661,17 @@ export const CaptureTray: FC<CaptureTrayProps> = ({ capturedFrames, onClear, onD
                                    <Loader2 className="h-4 w-4 animate-spin" />
                                    Generating...
                                  </div>
-                                 {frameState.canStop && (
-                                   <Button
-                                     variant="ghost"
-                                     size="icon"
-                                     onClick={() => stopFrameProcessing(frame.index)}
-                                     className="h-6 w-6"
-                                     title="Stop generation"
-                                   >
-                                     <StopCircle className="h-3 w-3" />
-                                   </Button>
-                                 )}
+                                  {frameState.canStop && (
+                                    <Button
+                                      variant="ghost"
+                                      size="icon"
+                                      onClick={() => smartProcessor.stopProcessing()}
+                                      className="h-6 w-6"
+                                      title="Stop generation"
+                                    >
+                                      <StopCircle className="h-3 w-3" />
+                                    </Button>
+                                  )}
                                </div>
                              </div>
                            ) : frame.aiPrompt ? (
@@ -745,9 +685,9 @@ export const CaptureTray: FC<CaptureTrayProps> = ({ capturedFrames, onClear, onD
                                <Button
                                  variant="outline"
                                  size="sm"
-                                 onClick={() => handleGeneratePrompt(frame)}
-                                 className="w-full"
-                                 disabled={batchProgress.isRunning}
+                                  onClick={() => handleGeneratePrompt(frame)}
+                                  className="w-full"
+                                  disabled={progress.phase === 'processing'}
                                >
                                  {frameState.error ? (
                                    <RefreshCw className="mr-2 h-4 w-4 text-orange-500" />
@@ -764,15 +704,15 @@ export const CaptureTray: FC<CaptureTrayProps> = ({ capturedFrames, onClear, onD
                                  <AlertCircle className="h-3 w-3" />
                                  {frameState.error}
                                </div>
-                               <Button
-                                 variant="ghost"
-                                 size="sm"
-                                 onClick={() => retryFrame(frame.index, frame.dataUrl, 'prompt', frame.aiDescription)}
-                                 className="h-6 text-xs"
-                               >
-                                 <RefreshCw className="mr-1 h-3 w-3" />
-                                 Retry
-                               </Button>
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  onClick={() => handleGeneratePrompt(frame)}
+                                  className="h-6 text-xs"
+                                >
+                                  <RefreshCw className="mr-1 h-3 w-3" />
+                                  Retry
+                                </Button>
                              </div>
                            )}
                          </div>
@@ -788,17 +728,17 @@ export const CaptureTray: FC<CaptureTrayProps> = ({ capturedFrames, onClear, onD
                            >
                              <X className="h-4 w-4" />
                            </Button>
-                           {frameState.error && (
-                             <Button
-                               variant="ghost"
-                               size="icon"
-                               onClick={() => clearFrameState(frame.index)}
-                               className="h-8 w-8 text-muted-foreground hover:text-primary"
-                               title="Clear error state"
-                             >
-                               <RefreshCw className="h-4 w-4" />
-                             </Button>
-                           )}
+                            {frameState.error && (
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                onClick={() => smartProcessor.clearFrameState(frame.index)}
+                                className="h-8 w-8 text-muted-foreground hover:text-primary"
+                                title="Clear error state"
+                              >
+                                <RefreshCw className="h-4 w-4" />
+                              </Button>
+                            )}
                          </div>
                        </TableCell>
                     </TableRow>
