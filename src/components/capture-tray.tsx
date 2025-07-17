@@ -2,7 +2,7 @@
 
 import type { FC } from 'react';
 import { useState } from 'react';
-import { Download, Loader2, Trash2, X, Brain, Sparkles, Edit3, FileDown, Copy, FileText, FileImage, AlertCircle, CheckCircle, XCircle, Pause, Play, RefreshCw } from 'lucide-react';
+import { Download, Loader2, Trash2, X, Brain, Sparkles, Edit3, FileDown, Copy, FileText, FileImage, AlertCircle, CheckCircle, XCircle, Pause, Play, RefreshCw, StopCircle, Clock, Hash } from 'lucide-react';
 import JSZip from 'jszip';
 import jsPDF from 'jspdf';
 import { Document, Packer, Paragraph, TextRun, ImageRun, HeadingLevel } from 'docx';
@@ -41,7 +41,11 @@ export const CaptureTray: FC<CaptureTrayProps> = ({ capturedFrames, onClear, onD
     generatePrompt, 
     analyzeAllFrames, 
     generateAllPrompts, 
-    cancelBatchOperation, 
+    stopFrameProcessing,
+    retryFrame,
+    cancelBatchOperation,
+    pauseBatchOperation,
+    resumeBatchOperation,
     getFrameState, 
     batchProgress,
     clearFrameState 
@@ -484,32 +488,57 @@ export const CaptureTray: FC<CaptureTrayProps> = ({ capturedFrames, onClear, onD
         </div>
       </CardHeader>
       <CardContent>
-        {/* Batch Progress Indicator */}
+        {/* Enhanced Batch Progress Indicator */}
         {batchProgress.isRunning && (
           <div className="mb-4 rounded-lg border bg-muted/50 p-4">
             <div className="flex items-center justify-between mb-2">
               <div className="flex items-center gap-2">
                 <Loader2 className="h-4 w-4 animate-spin" />
-                <span className="text-sm font-medium">Processing frames...</span>
+                <span className="text-sm font-medium">{batchProgress.currentOperation}</span>
               </div>
-              <Badge variant="outline">
-                {batchProgress.completed + batchProgress.failed}/{batchProgress.total}
-              </Badge>
+              <div className="flex items-center gap-2">
+                <Badge variant="outline">
+                  {batchProgress.completed + batchProgress.failed + batchProgress.cached}/{batchProgress.total}
+                </Badge>
+                <Button
+                  variant="outline"
+                  size="icon"
+                  onClick={pauseBatchOperation}
+                  className="h-8 w-8"
+                  title="Pause batch operation"
+                >
+                  <Pause className="h-4 w-4" />
+                </Button>
+              </div>
             </div>
             <Progress 
-              value={(batchProgress.completed + batchProgress.failed) / batchProgress.total * 100} 
+              value={(batchProgress.completed + batchProgress.failed + batchProgress.cached) / batchProgress.total * 100} 
               className="mb-2" 
             />
-            <div className="flex items-center gap-4 text-xs text-muted-foreground">
-              <span className="flex items-center gap-1">
-                <CheckCircle className="h-3 w-3 text-green-500" />
-                {batchProgress.completed} completed
-              </span>
-              {batchProgress.failed > 0 && (
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-4 text-xs text-muted-foreground">
                 <span className="flex items-center gap-1">
-                  <XCircle className="h-3 w-3 text-red-500" />
-                  {batchProgress.failed} failed
+                  <CheckCircle className="h-3 w-3 text-green-500" />
+                  {batchProgress.completed} completed
                 </span>
+                {batchProgress.cached > 0 && (
+                  <span className="flex items-center gap-1">
+                    <Hash className="h-3 w-3 text-blue-500" />
+                    {batchProgress.cached} from cache
+                  </span>
+                )}
+                {batchProgress.failed > 0 && (
+                  <span className="flex items-center gap-1">
+                    <XCircle className="h-3 w-3 text-red-500" />
+                    {batchProgress.failed} failed
+                  </span>
+                )}
+              </div>
+              {batchProgress.estimatedTimeRemaining > 0 && (
+                <div className="flex items-center gap-1 text-xs text-muted-foreground">
+                  <Clock className="h-3 w-3" />
+                  {Math.round(batchProgress.estimatedTimeRemaining / 1000)}s remaining
+                </div>
               )}
             </div>
           </div>
@@ -608,82 +637,145 @@ export const CaptureTray: FC<CaptureTrayProps> = ({ capturedFrames, onClear, onD
                          </div>
                        </TableCell>
                       <TableCell className="p-2">
-                        <div className="space-y-2">
-                          {frameState.isAnalyzing ? (
-                            <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                              <Loader2 className="h-4 w-4 animate-spin" />
-                              Analyzing...
-                            </div>
-                          ) : frame.aiDescription ? (
-                            <CopyableTextarea
-                              value={frame.aiDescription}
-                              onChange={(value) => handleTextEdit(frame.index, 'aiDescription', value)}
-                              placeholder="AI description will appear here..."
-                            />
-                          ) : (
-                            <div className="flex items-center justify-center gap-2">
-                              <Button
-                                variant="outline"
-                                size="sm"
-                                onClick={() => handleAnalyzeFrame(frame)}
-                                className="w-full"
-                                disabled={batchProgress.isRunning}
-                              >
-                                {frameState.error ? (
-                                  <RefreshCw className="mr-2 h-4 w-4 text-orange-500" />
-                                ) : (
-                                  <Brain className="mr-2 h-4 w-4" />
-                                )}
-                                {frameState.error ? 'Retry' : 'Analyze'}
-                              </Button>
-                            </div>
-                          )}
-                          {frameState.error && (
-                            <div className="text-xs text-red-500 flex items-center gap-1">
-                              <AlertCircle className="h-3 w-3" />
-                              {frameState.error}
-                            </div>
-                          )}
-                        </div>
+                         <div className="space-y-2">
+                           {frameState.isAnalyzing ? (
+                             <div className="space-y-2">
+                               <div className="flex items-center justify-between">
+                                 <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                                   <Loader2 className="h-4 w-4 animate-spin" />
+                                   Analyzing...
+                                    {frameState.isFromCache && (
+                                      <Hash className="h-3 w-3 text-blue-500" />
+                                    )}
+                                 </div>
+                                 {frameState.canStop && (
+                                   <Button
+                                     variant="ghost"
+                                     size="icon"
+                                     onClick={() => stopFrameProcessing(frame.index)}
+                                     className="h-6 w-6"
+                                     title="Stop analysis"
+                                   >
+                                     <StopCircle className="h-3 w-3" />
+                                   </Button>
+                                 )}
+                               </div>
+                             </div>
+                           ) : frame.aiDescription ? (
+                             <div className="space-y-2">
+                               <CopyableTextarea
+                                 value={frame.aiDescription}
+                                 onChange={(value) => handleTextEdit(frame.index, 'aiDescription', value)}
+                                 placeholder="AI description will appear here..."
+                               />
+                               {frameState.isFromCache && (
+                                 <div className="text-xs text-blue-600 flex items-center gap-1">
+                                   <Hash className="h-3 w-3" />
+                                   Loaded from cache
+                                 </div>
+                               )}
+                             </div>
+                           ) : (
+                             <div className="flex items-center justify-center gap-2">
+                               <Button
+                                 variant="outline"
+                                 size="sm"
+                                 onClick={() => handleAnalyzeFrame(frame)}
+                                 className="w-full"
+                                 disabled={batchProgress.isRunning}
+                               >
+                                 {frameState.error ? (
+                                   <RefreshCw className="mr-2 h-4 w-4 text-orange-500" />
+                                 ) : (
+                                   <Brain className="mr-2 h-4 w-4" />
+                                 )}
+                                 {frameState.error ? 'Retry' : 'Analyze'}
+                               </Button>
+                             </div>
+                           )}
+                           {frameState.error && (
+                             <div className="space-y-1">
+                               <div className="text-xs text-red-500 flex items-center gap-1">
+                                 <AlertCircle className="h-3 w-3" />
+                                 {frameState.error}
+                               </div>
+                               <Button
+                                 variant="ghost"
+                                 size="sm"
+                                 onClick={() => retryFrame(frame.index, frame.dataUrl, 'analyze')}
+                                 className="h-6 text-xs"
+                               >
+                                 <RefreshCw className="mr-1 h-3 w-3" />
+                                 Retry
+                               </Button>
+                             </div>
+                           )}
+                         </div>
                       </TableCell>
                       <TableCell className="p-2">
-                        <div className="space-y-2">
-                          {frameState.isGeneratingPrompt ? (
-                            <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                              <Loader2 className="h-4 w-4 animate-spin" />
-                              Generating...
-                            </div>
-                          ) : frame.aiPrompt ? (
-                            <CopyableTextarea
-                              value={frame.aiPrompt}
-                              onChange={(value) => handleTextEdit(frame.index, 'aiPrompt', value)}
-                              placeholder="AI prompt will appear here..."
-                            />
-                          ) : (
-                            <div className="flex items-center justify-center gap-2">
-                              <Button
-                                variant="outline"
-                                size="sm"
-                                onClick={() => handleGeneratePrompt(frame)}
-                                className="w-full"
-                                disabled={batchProgress.isRunning}
-                              >
-                                {frameState.error ? (
-                                  <RefreshCw className="mr-2 h-4 w-4 text-orange-500" />
-                                ) : (
-                                  <Sparkles className="mr-2 h-4 w-4" />
-                                )}
-                                {frameState.error ? 'Retry' : 'Generate'}
-                              </Button>
-                            </div>
-                          )}
-                          {frameState.error && (
-                            <div className="text-xs text-red-500 flex items-center gap-1">
-                              <AlertCircle className="h-3 w-3" />
-                              {frameState.error}
-                            </div>
-                          )}
-                        </div>
+                         <div className="space-y-2">
+                           {frameState.isGeneratingPrompt ? (
+                             <div className="space-y-2">
+                               <div className="flex items-center justify-between">
+                                 <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                                   <Loader2 className="h-4 w-4 animate-spin" />
+                                   Generating...
+                                 </div>
+                                 {frameState.canStop && (
+                                   <Button
+                                     variant="ghost"
+                                     size="icon"
+                                     onClick={() => stopFrameProcessing(frame.index)}
+                                     className="h-6 w-6"
+                                     title="Stop generation"
+                                   >
+                                     <StopCircle className="h-3 w-3" />
+                                   </Button>
+                                 )}
+                               </div>
+                             </div>
+                           ) : frame.aiPrompt ? (
+                             <CopyableTextarea
+                               value={frame.aiPrompt}
+                               onChange={(value) => handleTextEdit(frame.index, 'aiPrompt', value)}
+                               placeholder="AI prompt will appear here..."
+                             />
+                           ) : (
+                             <div className="flex items-center justify-center gap-2">
+                               <Button
+                                 variant="outline"
+                                 size="sm"
+                                 onClick={() => handleGeneratePrompt(frame)}
+                                 className="w-full"
+                                 disabled={batchProgress.isRunning}
+                               >
+                                 {frameState.error ? (
+                                   <RefreshCw className="mr-2 h-4 w-4 text-orange-500" />
+                                 ) : (
+                                   <Sparkles className="mr-2 h-4 w-4" />
+                                 )}
+                                 {frameState.error ? 'Retry' : 'Generate'}
+                               </Button>
+                             </div>
+                           )}
+                           {frameState.error && (
+                             <div className="space-y-1">
+                               <div className="text-xs text-red-500 flex items-center gap-1">
+                                 <AlertCircle className="h-3 w-3" />
+                                 {frameState.error}
+                               </div>
+                               <Button
+                                 variant="ghost"
+                                 size="sm"
+                                 onClick={() => retryFrame(frame.index, frame.dataUrl, 'prompt', frame.aiDescription)}
+                                 className="h-6 text-xs"
+                               >
+                                 <RefreshCw className="mr-1 h-3 w-3" />
+                                 Retry
+                               </Button>
+                             </div>
+                           )}
+                         </div>
                       </TableCell>
                        <TableCell className="p-2">
                          <div className="flex flex-col items-center gap-1">

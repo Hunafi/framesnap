@@ -1,19 +1,33 @@
 import { useState, useCallback, useRef } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 
+// Helper function to generate hash from image data for caching
+const generateImageHash = async (imageData: string): Promise<string> => {
+  const encoder = new TextEncoder();
+  const data = encoder.encode(imageData.substring(0, 1000)); // Use first 1000 chars for hash
+  const hashBuffer = await crypto.subtle.digest('SHA-256', data);
+  const hashArray = Array.from(new Uint8Array(hashBuffer));
+  return hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
+};
+
 interface FrameProcessingState {
   isAnalyzing: boolean;
   isGeneratingPrompt: boolean;
   error: string | null;
   retryCount: number;
+  canStop: boolean;
+  isFromCache: boolean;
 }
 
 interface BatchProgress {
   total: number;
   completed: number;
   failed: number;
+  cached: number;
   isRunning: boolean;
   canCancel: boolean;
+  currentOperation: string;
+  estimatedTimeRemaining: number;
 }
 
 export interface UseAIBatchAnalysisReturn {
@@ -21,86 +35,120 @@ export interface UseAIBatchAnalysisReturn {
   generatePrompt: (frameIndex: number, imageData: string, imageDescription?: string) => Promise<string | null>;
   analyzeAllFrames: (frames: Array<{ index: number; dataUrl: string }>) => Promise<void>;
   generateAllPrompts: (frames: Array<{ index: number; dataUrl: string; aiDescription?: string }>) => Promise<void>;
+  stopFrameProcessing: (frameIndex: number) => void;
+  retryFrame: (frameIndex: number, imageData: string, operation: 'analyze' | 'prompt', description?: string) => Promise<void>;
   cancelBatchOperation: () => void;
+  pauseBatchOperation: () => void;
+  resumeBatchOperation: () => void;
   getFrameState: (frameIndex: number) => FrameProcessingState;
   batchProgress: BatchProgress;
   clearFrameState: (frameIndex: number) => void;
 }
 
-class RequestQueue {
-  private queue: Array<() => Promise<any>> = [];
-  private running = 0;
-  private maxConcurrent = 1; // Reduced for better rate limit handling
+class SequentialRequestQueue {
+  private queue: Array<{ id: string; fn: () => Promise<any>; resolve: (value: any) => void; reject: (error: any) => void }> = [];
+  private isProcessing = false;
   private cancelled = false;
-  private requestDelay = 1000; // Start with 1 second delay
+  private paused = false;
+  private requestDelay = 2000; // Start with 2 second delay for better stability
   private consecutiveFailures = 0;
+  private activeRequests = new Set<string>();
 
-  constructor(maxConcurrent = 1) {
-    this.maxConcurrent = maxConcurrent;
-  }
-
-  async add<T>(fn: () => Promise<T>): Promise<T> {
+  async add<T>(fn: () => Promise<T>, id: string): Promise<T> {
     return new Promise((resolve, reject) => {
       if (this.cancelled) {
         reject(new Error('Operation cancelled'));
         return;
       }
 
-      const wrappedFn = async () => {
-        try {
-          const result = await fn();
-          resolve(result);
-        } catch (error) {
-          reject(error);
-        }
-      };
-
-      this.queue.push(wrappedFn);
-      this.process();
+      this.queue.push({ id, fn, resolve, reject });
+      this.activeRequests.add(id);
+      
+      if (!this.isProcessing) {
+        this.process();
+      }
     });
   }
 
+  stop(id: string) {
+    // Remove from queue if not yet started
+    const index = this.queue.findIndex(item => item.id === id);
+    if (index !== -1) {
+      const item = this.queue.splice(index, 1)[0];
+      item.reject(new Error('Operation stopped by user'));
+    }
+    this.activeRequests.delete(id);
+  }
+
   private async process() {
-    if (this.running >= this.maxConcurrent || this.queue.length === 0 || this.cancelled) {
+    if (this.isProcessing || this.queue.length === 0 || this.cancelled || this.paused) {
       return;
     }
 
-    this.running++;
-    const fn = this.queue.shift()!;
+    this.isProcessing = true;
     
-    try {
-      await fn();
-      // Reset delay on success
-      this.consecutiveFailures = 0;
-      this.requestDelay = Math.max(1000, this.requestDelay * 0.9);
-    } catch (error) {
-      console.error('Queue processing error:', error);
-      // Increase delay on failure
-      this.consecutiveFailures++;
-      if (error.message.includes('rate limit') || error.message.includes('429')) {
-        this.requestDelay = Math.min(10000, this.requestDelay * 2);
-        console.log(`Rate limit detected, increasing delay to ${this.requestDelay}ms`);
+    while (this.queue.length > 0 && !this.cancelled && !this.paused) {
+      const item = this.queue.shift()!;
+      
+      try {
+        const result = await item.fn();
+        item.resolve(result);
+        
+        // Reset delay on success
+        this.consecutiveFailures = 0;
+        this.requestDelay = Math.max(2000, this.requestDelay * 0.9);
+        
+      } catch (error: any) {
+        console.error('Sequential queue processing error:', error);
+        item.reject(error);
+        
+        // Increase delay on failure
+        this.consecutiveFailures++;
+        if (error.message?.includes('rate limit') || error.message?.includes('429')) {
+          this.requestDelay = Math.min(30000, this.requestDelay * 2);
+          console.log(`Rate limit detected, increasing delay to ${this.requestDelay}ms`);
+        }
+      } finally {
+        this.activeRequests.delete(item.id);
       }
-    } finally {
-      this.running--;
-      // Use adaptive delay based on recent failures
-      const adaptiveDelay = this.requestDelay + (this.consecutiveFailures * 500);
-      await new Promise(resolve => setTimeout(resolve, adaptiveDelay));
+      
+      // Sequential delay between requests
+      if (this.queue.length > 0 && !this.cancelled && !this.paused) {
+        const adaptiveDelay = this.requestDelay + (this.consecutiveFailures * 1000);
+        console.log(`Waiting ${adaptiveDelay}ms before next request...`);
+        await new Promise(resolve => setTimeout(resolve, adaptiveDelay));
+      }
+    }
+    
+    this.isProcessing = false;
+  }
+
+  pause() {
+    this.paused = true;
+  }
+
+  resume() {
+    this.paused = false;
+    if (!this.isProcessing) {
       this.process();
     }
   }
 
   cancel() {
     this.cancelled = true;
+    this.queue.forEach(item => item.reject(new Error('Operation cancelled')));
     this.queue.length = 0;
+    this.activeRequests.clear();
   }
 
   reset() {
     this.cancelled = false;
+    this.paused = false;
     this.queue.length = 0;
-    this.running = 0;
+    this.isProcessing = false;
     this.consecutiveFailures = 0;
-    this.requestDelay = 1000;
+    this.requestDelay = 2000;
+    this.activeRequests.clear();
   }
 }
 
@@ -110,12 +158,16 @@ export function useAIBatchAnalysis(): UseAIBatchAnalysisReturn {
     total: 0,
     completed: 0,
     failed: 0,
+    cached: 0,
     isRunning: false,
-    canCancel: false
+    canCancel: false,
+    currentOperation: '',
+    estimatedTimeRemaining: 0
   });
 
-  const queueRef = useRef<RequestQueue>(new RequestQueue(1));
+  const queueRef = useRef<SequentialRequestQueue>(new SequentialRequestQueue());
   const abortControllerRef = useRef<AbortController | null>(null);
+  const startTimeRef = useRef<number>(0);
 
   const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 
@@ -183,7 +235,9 @@ export function useAIBatchAnalysis(): UseAIBatchAnalysisReturn {
         isAnalyzing: false,
         isGeneratingPrompt: false,
         error: null,
-        retryCount: 0
+        retryCount: 0,
+        canStop: false,
+        isFromCache: false
       };
       newStates.set(frameIndex, { ...currentState, ...updates });
       return newStates;
@@ -203,14 +257,36 @@ export function useAIBatchAnalysis(): UseAIBatchAnalysisReturn {
       isAnalyzing: false,
       isGeneratingPrompt: false,
       error: null,
-      retryCount: 0
+      retryCount: 0,
+      canStop: false,
+      isFromCache: false
     };
   }, [frameStates]);
 
   const analyzeFrame = useCallback(async (frameIndex: number, imageData: string): Promise<string | null> => {
-    updateFrameState(frameIndex, { isAnalyzing: true, error: null });
+    updateFrameState(frameIndex, { isAnalyzing: true, error: null, canStop: true });
     
     try {
+      // Check cache first
+      const imageHash = await generateImageHash(imageData);
+      
+      const { data: cachedData } = await supabase
+        .from('frame_analysis_cache')
+        .select('ai_description')
+        .eq('image_hash', imageHash)
+        .maybeSingle();
+      
+      if (cachedData?.ai_description) {
+        console.log(`Using cached description for frame ${frameIndex}`);
+        updateFrameState(frameIndex, { 
+          isAnalyzing: false, 
+          retryCount: 0,
+          canStop: false,
+          isFromCache: true 
+        });
+        return cachedData.ai_description;
+      }
+
       const result = await withRetry(async () => {
         const { data, error: functionError } = await supabase.functions.invoke('analyze-frame', {
           body: { imageData }
@@ -223,14 +299,34 @@ export function useAIBatchAnalysis(): UseAIBatchAnalysisReturn {
         return data?.description || null;
       });
 
-      updateFrameState(frameIndex, { isAnalyzing: false, retryCount: 0 });
+      // Cache the result if successful
+      if (result) {
+        try {
+          await supabase
+            .from('frame_analysis_cache')
+            .insert({
+              image_hash: imageHash,
+              ai_description: result
+            });
+        } catch (cacheError) {
+          console.warn('Failed to cache analysis result:', cacheError);
+        }
+      }
+
+      updateFrameState(frameIndex, { 
+        isAnalyzing: false, 
+        retryCount: 0,
+        canStop: false,
+        isFromCache: false 
+      });
       return result;
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'Failed to analyze frame';
       updateFrameState(frameIndex, { 
         isAnalyzing: false, 
         error: errorMessage,
-        retryCount: getFrameState(frameIndex).retryCount + 1
+        retryCount: getFrameState(frameIndex).retryCount + 1,
+        canStop: false
       });
       console.error(`Frame ${frameIndex} analysis error:`, error);
       return null;
@@ -242,12 +338,17 @@ export function useAIBatchAnalysis(): UseAIBatchAnalysisReturn {
     imageData: string, 
     imageDescription?: string
   ): Promise<string | null> => {
-    updateFrameState(frameIndex, { isGeneratingPrompt: true, error: null });
+    updateFrameState(frameIndex, { isGeneratingPrompt: true, error: null, canStop: true });
     
     try {
       const result = await withRetry(async () => {
+        // Use text-only mode when description is available (more efficient)
+        const requestBody = imageDescription 
+          ? { imageDescription } // Text-only request
+          : { imageData, imageDescription }; // Fallback to image analysis
+
         const { data, error: functionError } = await supabase.functions.invoke('generate-prompt', {
-          body: { imageData, imageDescription }
+          body: requestBody
         });
 
         if (functionError) {
@@ -257,14 +358,19 @@ export function useAIBatchAnalysis(): UseAIBatchAnalysisReturn {
         return data?.prompt || null;
       });
 
-      updateFrameState(frameIndex, { isGeneratingPrompt: false, retryCount: 0 });
+      updateFrameState(frameIndex, { 
+        isGeneratingPrompt: false, 
+        retryCount: 0,
+        canStop: false 
+      });
       return result;
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'Failed to generate prompt';
       updateFrameState(frameIndex, { 
         isGeneratingPrompt: false, 
         error: errorMessage,
-        retryCount: getFrameState(frameIndex).retryCount + 1
+        retryCount: getFrameState(frameIndex).retryCount + 1,
+        canStop: false
       });
       console.error(`Frame ${frameIndex} prompt generation error:`, error);
       return null;
@@ -276,31 +382,52 @@ export function useAIBatchAnalysis(): UseAIBatchAnalysisReturn {
 
     abortControllerRef.current = new AbortController();
     queueRef.current.reset();
+    startTimeRef.current = Date.now();
     
     setBatchProgress({
       total: frames.length,
       completed: 0,
       failed: 0,
+      cached: 0,
       isRunning: true,
-      canCancel: true
+      canCancel: true,
+      currentOperation: 'Analyzing frames...',
+      estimatedTimeRemaining: 0
     });
 
     let completed = 0;
     let failed = 0;
+    let cached = 0;
 
-    const updateProgress = () => {
+    const updateProgress = (frameIndex?: number) => {
+      const totalProcessed = completed + failed + cached;
+      const elapsedTime = Date.now() - startTimeRef.current;
+      const averageTimePerFrame = totalProcessed > 0 ? elapsedTime / totalProcessed : 0;
+      const remainingFrames = frames.length - totalProcessed;
+      const estimatedTimeRemaining = remainingFrames * averageTimePerFrame;
+
       setBatchProgress(prev => ({
         ...prev,
         completed,
-        failed
+        failed,
+        cached,
+        currentOperation: frameIndex ? `Analyzing frame ${frameIndex}...` : 'Analyzing frames...',
+        estimatedTimeRemaining
       }));
     };
 
     const processFrame = async (frame: { index: number; dataUrl: string }) => {
       try {
+        updateProgress(frame.index);
+        const frameState = getFrameState(frame.index);
         const result = await analyzeFrame(frame.index, frame.dataUrl);
+        
         if (result) {
-          completed++;
+          if (frameState.isFromCache) {
+            cached++;
+          } else {
+            completed++;
+          }
         } else {
           failed++;
         }
@@ -312,22 +439,27 @@ export function useAIBatchAnalysis(): UseAIBatchAnalysisReturn {
     };
 
     try {
-      const promises = frames.map(frame => 
-        queueRef.current.add(() => processFrame(frame))
-      );
-
-      await Promise.allSettled(promises);
+      // Process frames sequentially
+      for (const frame of frames) {
+        if (abortControllerRef.current?.signal.aborted) break;
+        
+        await queueRef.current.add(
+          () => processFrame(frame),
+          `analyze-${frame.index}`
+        );
+      }
     } catch (error) {
       console.error('Batch analysis error:', error);
     } finally {
       setBatchProgress(prev => ({
         ...prev,
         isRunning: false,
-        canCancel: false
+        canCancel: false,
+        currentOperation: 'Complete'
       }));
       abortControllerRef.current = null;
     }
-  }, [analyzeFrame]);
+  }, [analyzeFrame, getFrameState]);
 
   const generateAllPrompts = useCallback(async (
     frames: Array<{ index: number; dataUrl: string; aiDescription?: string }>
@@ -336,28 +468,41 @@ export function useAIBatchAnalysis(): UseAIBatchAnalysisReturn {
 
     abortControllerRef.current = new AbortController();
     queueRef.current.reset();
+    startTimeRef.current = Date.now();
     
     setBatchProgress({
       total: frames.length,
       completed: 0,
       failed: 0,
+      cached: 0,
       isRunning: true,
-      canCancel: true
+      canCancel: true,
+      currentOperation: 'Generating prompts...',
+      estimatedTimeRemaining: 0
     });
 
     let completed = 0;
     let failed = 0;
 
-    const updateProgress = () => {
+    const updateProgress = (frameIndex?: number) => {
+      const totalProcessed = completed + failed;
+      const elapsedTime = Date.now() - startTimeRef.current;
+      const averageTimePerFrame = totalProcessed > 0 ? elapsedTime / totalProcessed : 0;
+      const remainingFrames = frames.length - totalProcessed;
+      const estimatedTimeRemaining = remainingFrames * averageTimePerFrame;
+
       setBatchProgress(prev => ({
         ...prev,
         completed,
-        failed
+        failed,
+        currentOperation: frameIndex ? `Generating prompt for frame ${frameIndex}...` : 'Generating prompts...',
+        estimatedTimeRemaining
       }));
     };
 
     const processFrame = async (frame: { index: number; dataUrl: string; aiDescription?: string }) => {
       try {
+        updateProgress(frame.index);
         const result = await generatePrompt(frame.index, frame.dataUrl, frame.aiDescription);
         if (result) {
           completed++;
@@ -372,22 +517,69 @@ export function useAIBatchAnalysis(): UseAIBatchAnalysisReturn {
     };
 
     try {
-      const promises = frames.map(frame => 
-        queueRef.current.add(() => processFrame(frame))
-      );
-
-      await Promise.allSettled(promises);
+      // Process frames sequentially
+      for (const frame of frames) {
+        if (abortControllerRef.current?.signal.aborted) break;
+        
+        await queueRef.current.add(
+          () => processFrame(frame),
+          `prompt-${frame.index}`
+        );
+      }
     } catch (error) {
       console.error('Batch prompt generation error:', error);
     } finally {
       setBatchProgress(prev => ({
         ...prev,
         isRunning: false,
-        canCancel: false
+        canCancel: false,
+        currentOperation: 'Complete'
       }));
       abortControllerRef.current = null;
     }
   }, [generatePrompt]);
+
+  const stopFrameProcessing = useCallback((frameIndex: number) => {
+    queueRef.current.stop(`analyze-${frameIndex}`);
+    queueRef.current.stop(`prompt-${frameIndex}`);
+    updateFrameState(frameIndex, { 
+      isAnalyzing: false, 
+      isGeneratingPrompt: false,
+      canStop: false,
+      error: 'Stopped by user'
+    });
+  }, [updateFrameState]);
+
+  const retryFrame = useCallback(async (
+    frameIndex: number, 
+    imageData: string, 
+    operation: 'analyze' | 'prompt',
+    description?: string
+  ) => {
+    clearFrameState(frameIndex);
+    
+    if (operation === 'analyze') {
+      await analyzeFrame(frameIndex, imageData);
+    } else {
+      await generatePrompt(frameIndex, imageData, description);
+    }
+  }, [analyzeFrame, generatePrompt, clearFrameState]);
+
+  const pauseBatchOperation = useCallback(() => {
+    queueRef.current.pause();
+    setBatchProgress(prev => ({
+      ...prev,
+      currentOperation: 'Paused'
+    }));
+  }, []);
+
+  const resumeBatchOperation = useCallback(() => {
+    queueRef.current.resume();
+    setBatchProgress(prev => ({
+      ...prev,
+      currentOperation: 'Resuming...'
+    }));
+  }, []);
 
   const cancelBatchOperation = useCallback(() => {
     if (abortControllerRef.current) {
@@ -396,7 +588,8 @@ export function useAIBatchAnalysis(): UseAIBatchAnalysisReturn {
       setBatchProgress(prev => ({
         ...prev,
         isRunning: false,
-        canCancel: false
+        canCancel: false,
+        currentOperation: 'Cancelled'
       }));
     }
   }, []);
@@ -406,7 +599,11 @@ export function useAIBatchAnalysis(): UseAIBatchAnalysisReturn {
     generatePrompt,
     analyzeAllFrames,
     generateAllPrompts,
+    stopFrameProcessing,
+    retryFrame,
     cancelBatchOperation,
+    pauseBatchOperation,
+    resumeBatchOperation,
     getFrameState,
     batchProgress,
     clearFrameState

@@ -41,6 +41,30 @@ export type Database = {
         }
         Relationships: []
       }
+      frame_analysis_cache: {
+        Row: {
+          ai_description: string
+          created_at: string
+          expires_at: string
+          id: string
+          image_hash: string
+        }
+        Insert: {
+          ai_description: string
+          created_at?: string
+          expires_at?: string
+          id?: string
+          image_hash: string
+        }
+        Update: {
+          ai_description?: string
+          created_at?: string
+          expires_at?: string
+          id?: string
+          image_hash?: string
+        }
+        Relationships: []
+      }
       profiles: {
         Row: {
           created_at: string
@@ -73,7 +97,10 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
-      [_ in never]: never
+      cleanup_expired_frame_cache: {
+        Args: Record<PropertyKey, never>
+        Returns: undefined
+      }
     }
     Enums: {
       [_ in never]: never
