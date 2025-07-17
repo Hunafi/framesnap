@@ -45,6 +45,26 @@ export function AIProcessingDashboard({ capturedFrames, onUpdateFrame }: AIProce
     }
   };
 
+  const handleRetryAllFailed = async (type: 'analyze' | 'prompt') => {
+    if (type === 'analyze') {
+      const failedFrames = capturedFrames.filter(f => {
+        const state = getFrameState(f.index);
+        return state.error && !f.aiDescription;
+      });
+      for (const frame of failedFrames) {
+        await handleAnalyzeFrame(frame);
+      }
+    } else {
+      const failedFrames = capturedFrames.filter(f => {
+        const state = getFrameState(f.index);
+        return state.error && f.aiDescription && !f.aiPrompt;
+      });
+      for (const frame of failedFrames) {
+        await handleGeneratePrompt(frame);
+      }
+    }
+  };
+
   const getAnalyzedCount = () => capturedFrames.filter(f => f.aiDescription).length;
   const getPromptCount = () => capturedFrames.filter(f => f.aiPrompt).length;
 
@@ -97,7 +117,7 @@ export function AIProcessingDashboard({ capturedFrames, onUpdateFrame }: AIProce
                           <Button 
                             size="sm" 
                             variant="outline"
-                            onClick={() => retryFrame(frame.index, frame.dataUrl, 'analyze')}
+                            onClick={() => handleRetryAllFailed('analyze')}
                           >
                             <RefreshCw className="h-3 w-3" />
                           </Button>
@@ -146,7 +166,7 @@ export function AIProcessingDashboard({ capturedFrames, onUpdateFrame }: AIProce
                           <Button 
                             size="sm" 
                             variant="outline"
-                            onClick={() => retryFrame(frame.index, frame.dataUrl, 'prompt', frame.aiDescription)}
+                            onClick={() => handleRetryAllFailed('prompt')}
                           >
                             <RefreshCw className="h-3 w-3" />
                           </Button>

@@ -589,12 +589,6 @@ export const CaptureTray: FC<CaptureTrayProps> = ({ capturedFrames, onClear, onD
                                  onChange={(value) => handleTextEdit(frame.index, 'aiDescription', value)}
                                  placeholder="AI description will appear here..."
                                />
-                               {frameState.isFromCache && (
-                                 <div className="text-xs text-blue-600 flex items-center gap-1">
-                                   <Hash className="h-3 w-3" />
-                                   Loaded from cache
-                                 </div>
-                               )}
                              </div>
                            ) : (
                              <div className="flex items-center justify-center gap-2">

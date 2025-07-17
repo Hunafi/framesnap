@@ -46,7 +46,7 @@ export function useDirectAIProcessor() {
         console.error('AI Analysis Error:', error);
         updateFrameState(frameIndex, { 
           isAnalyzing: false, 
-          error: error.message || 'Analysis failed',
+          error: 'Server busy. Please wait 45 seconds and retry.',
           retryCount: getFrameState(frameIndex).retryCount + 1
         });
         return null;
@@ -58,7 +58,7 @@ export function useDirectAIProcessor() {
       console.error('AI Analysis Error:', error);
       updateFrameState(frameIndex, { 
         isAnalyzing: false, 
-        error: error instanceof Error ? error.message : 'Analysis failed',
+        error: 'Server busy. Please wait 45 seconds and retry.',
         retryCount: getFrameState(frameIndex).retryCount + 1
       });
       return null;
