@@ -464,11 +464,11 @@ export const CaptureTray: FC<CaptureTrayProps> = ({ capturedFrames, onClear, onD
               <TableBody>
                 {capturedFrames.map((frame) => (
                   <TableRow key={frame.index}>
-                     <TableCell className="p-2 align-middle">
-                       <div className="flex items-center gap-3">
-                         <div className="relative flex-shrink-0">
+                     <TableCell className="p-3">
+                       <div className="flex flex-col items-center gap-2">
+                         <div className="relative">
                            <div
-                             className="w-16 h-12 cursor-pointer rounded overflow-hidden border border-border shadow-sm bg-muted"
+                             className="w-20 h-36 cursor-pointer rounded overflow-hidden border border-border shadow-md bg-muted"
                              onClick={() => setSelectedFrame({ frameIndex: frame.index, dataUrl: frame.dataUrl })}
                            >
                              <img
@@ -481,6 +481,15 @@ export const CaptureTray: FC<CaptureTrayProps> = ({ capturedFrames, onClear, onD
                              #{frame.index}
                            </Badge>
                          </div>
+                         <Button
+                           variant="outline"
+                           size="sm"
+                           onClick={() => handleDownloadFrame(frame)}
+                           className="w-full text-xs"
+                         >
+                           <Download className="w-3 h-3 mr-1" />
+                           Download
+                         </Button>
                        </div>
                      </TableCell>
                     <TableCell className="p-2">
@@ -540,16 +549,7 @@ export const CaptureTray: FC<CaptureTrayProps> = ({ capturedFrames, onClear, onD
                       </div>
                     </TableCell>
                      <TableCell className="p-2">
-                       <div className="flex items-center gap-1">
-                         <Button
-                           variant="ghost"
-                           size="icon"
-                           onClick={() => handleDownloadFrame(frame)}
-                           className="h-8 w-8 text-muted-foreground hover:text-primary"
-                           title={`Download frame ${frame.index}`}
-                         >
-                           <Download className="h-4 w-4" />
-                         </Button>
+                       <div className="flex items-center justify-center">
                          <Button
                            variant="ghost"
                            size="icon"
