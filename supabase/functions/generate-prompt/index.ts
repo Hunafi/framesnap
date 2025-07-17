@@ -78,23 +78,39 @@ Please create a detailed prompt that builds upon this description to generate a 
       });
     }
 
+    // Optimize request based on whether we're using image description or not
+    const requestBody = {
+      model: imageDescription ? 'gpt-4o-mini' : 'gpt-4o-mini', // Keep vision model for consistency
+      messages,
+      max_tokens: imageDescription ? 180 : 200, // Reduce tokens when using description
+      temperature: 0.4 // Lower temperature for more consistent results
+    };
+
+    console.log('Request mode:', imageDescription ? 'text-enhanced' : 'vision-direct');
+
     const response = await fetch('https://api.openai.com/v1/chat/completions', {
       method: 'POST',
       headers: {
         'Authorization': `Bearer ${openAIApiKey}`,
         'Content-Type': 'application/json',
       },
-      body: JSON.stringify({
-        model: 'gpt-4o-mini',
-        messages,
-        max_tokens: 300,
-        temperature: 0.7
-      }),
+      body: JSON.stringify(requestBody),
     });
+
+    // Log rate limit headers for monitoring
+    const rateLimitRemaining = response.headers.get('x-ratelimit-remaining-requests');
+    const rateLimitReset = response.headers.get('x-ratelimit-reset-requests');
+    const retryAfter = response.headers.get('retry-after');
+    
+    console.log('Rate limit info:', { rateLimitRemaining, rateLimitReset, retryAfter });
 
     if (!response.ok) {
       const error = await response.json();
-      throw new Error(error.error?.message || 'Failed to generate prompt');
+      const errorMessage = error.error?.message || 'Failed to generate prompt';
+      if (response.status === 429) {
+        throw new Error(`Rate limit exceeded: ${errorMessage}. Retry after: ${retryAfter || 'unknown'}`);
+      }
+      throw new Error(errorMessage);
     }
 
     const data = await response.json();

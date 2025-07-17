@@ -30,10 +30,12 @@ export interface UseAIBatchAnalysisReturn {
 class RequestQueue {
   private queue: Array<() => Promise<any>> = [];
   private running = 0;
-  private maxConcurrent = 2;
+  private maxConcurrent = 1; // Reduced for better rate limit handling
   private cancelled = false;
+  private requestDelay = 1000; // Start with 1 second delay
+  private consecutiveFailures = 0;
 
-  constructor(maxConcurrent = 2) {
+  constructor(maxConcurrent = 1) {
     this.maxConcurrent = maxConcurrent;
   }
 
@@ -68,12 +70,22 @@ class RequestQueue {
     
     try {
       await fn();
+      // Reset delay on success
+      this.consecutiveFailures = 0;
+      this.requestDelay = Math.max(1000, this.requestDelay * 0.9);
     } catch (error) {
       console.error('Queue processing error:', error);
+      // Increase delay on failure
+      this.consecutiveFailures++;
+      if (error.message.includes('rate limit') || error.message.includes('429')) {
+        this.requestDelay = Math.min(10000, this.requestDelay * 2);
+        console.log(`Rate limit detected, increasing delay to ${this.requestDelay}ms`);
+      }
     } finally {
       this.running--;
-      // Add delay between requests to avoid rate limiting
-      await new Promise(resolve => setTimeout(resolve, 500));
+      // Use adaptive delay based on recent failures
+      const adaptiveDelay = this.requestDelay + (this.consecutiveFailures * 500);
+      await new Promise(resolve => setTimeout(resolve, adaptiveDelay));
       this.process();
     }
   }
@@ -87,6 +99,8 @@ class RequestQueue {
     this.cancelled = false;
     this.queue.length = 0;
     this.running = 0;
+    this.consecutiveFailures = 0;
+    this.requestDelay = 1000;
   }
 }
 
@@ -100,7 +114,7 @@ export function useAIBatchAnalysis(): UseAIBatchAnalysisReturn {
     canCancel: false
   });
 
-  const queueRef = useRef<RequestQueue>(new RequestQueue(2));
+  const queueRef = useRef<RequestQueue>(new RequestQueue(1));
   const abortControllerRef = useRef<AbortController | null>(null);
 
   const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
@@ -132,19 +146,28 @@ export function useAIBatchAnalysis(): UseAIBatchAnalysisReturn {
 
         if (attempt === maxRetries) break;
 
-        // Check if it's a rate limit error
+        // Enhanced rate limit detection
         const isRateLimit = lastError.message.includes('rate limit') || 
                            lastError.message.includes('429') ||
-                           lastError.message.includes('Too Many Requests');
+                           lastError.message.includes('Too Many Requests') ||
+                           lastError.message.includes('Rate limit exceeded');
 
         if (isRateLimit) {
-          // Exponential backoff with longer delays for rate limits
-          const delay = baseDelay * Math.pow(2, attempt) + (isRateLimit ? 5000 : 0);
-          console.log(`Rate limit detected, waiting ${delay}ms before retry ${attempt + 2}`);
+          // Extract retry-after value if available
+          const retryAfterMatch = lastError.message.match(/Retry after: (\d+)/);
+          const retryAfterSeconds = retryAfterMatch ? parseInt(retryAfterMatch[1]) : 0;
+          
+          // Use retry-after if available, otherwise exponential backoff with jitter
+          const baseRateDelay = retryAfterSeconds * 1000 || 10000;
+          const jitter = Math.random() * 2000; // Add randomness to avoid thundering herd
+          const delay = baseRateDelay + (baseDelay * Math.pow(2, attempt)) + jitter;
+          
+          console.log(`Rate limit detected, waiting ${Math.round(delay)}ms before retry ${attempt + 2}`);
           await sleep(delay);
         } else {
-          // Regular exponential backoff
-          const delay = baseDelay * Math.pow(2, attempt);
+          // Regular exponential backoff with jitter
+          const jitter = Math.random() * 1000;
+          const delay = baseDelay * Math.pow(2, attempt) + jitter;
           await sleep(delay);
         }
       }

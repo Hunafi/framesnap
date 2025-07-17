@@ -66,14 +66,26 @@ serve(async (req) => {
             ]
           }
         ],
-        max_tokens: 150,
-        temperature: 0.3
+        max_tokens: 120,
+        temperature: 0.2
       }),
     });
 
+    // Log rate limit headers for monitoring
+    const rateLimitRemaining = response.headers.get('x-ratelimit-remaining-requests');
+    const rateLimitReset = response.headers.get('x-ratelimit-reset-requests');
+    const retryAfter = response.headers.get('retry-after');
+    
+    console.log('Rate limit info:', { rateLimitRemaining, rateLimitReset, retryAfter });
+
     if (!response.ok) {
       const error = await response.json();
-      throw new Error(error.error?.message || 'Failed to analyze frame');
+      // Include rate limit info in error for better handling
+      const errorMessage = error.error?.message || 'Failed to analyze frame';
+      if (response.status === 429) {
+        throw new Error(`Rate limit exceeded: ${errorMessage}. Retry after: ${retryAfter || 'unknown'}`);
+      }
+      throw new Error(errorMessage);
     }
 
     const data = await response.json();
