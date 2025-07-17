@@ -150,19 +150,20 @@ export const TimelineViewer: FC<TimelineViewerProps> = ({
     
     const container = scrollContainerRef.current;
     
-    // PRECISION FIX: Use exact playhead position (fixed at 50% of viewport)
+    // ROOT CAUSE FIX: Calculate exact playhead position (fixed at viewport center)
     const playheadPosition = container.scrollLeft + (container.offsetWidth / 2);
     
-    // PRECISION FIX: More accurate frame calculation considering frame overlap
-    const exactFramePosition = playheadPosition / FRAME_WIDTH;
-    const frameRelativeIndex = Math.floor(exactFramePosition);
-    
-    // PRECISION FIX: Check which frame the playhead overlaps most
-    const frameOverlap = exactFramePosition - frameRelativeIndex;
-    const selectedFrameRelativeIndex = frameOverlap >= 0.5 ? frameRelativeIndex + 1 : frameRelativeIndex;
-    
-    const selectedFrameIndex = activeScene.startFrame + selectedFrameRelativeIndex;
+    // ROOT CAUSE FIX: Determine which frame contains the playhead center
+    const frameRelativeIndex = Math.floor(playheadPosition / FRAME_WIDTH);
+    const selectedFrameIndex = activeScene.startFrame + frameRelativeIndex;
     const clampedIndex = Math.max(activeScene.startFrame, Math.min(activeScene.endFrame, selectedFrameIndex));
+    
+    // DEBUG: Log alignment for troubleshooting
+    if (process.env.NODE_ENV === 'development') {
+      const frameLeft = frameRelativeIndex * FRAME_WIDTH;
+      const frameRight = frameLeft + FRAME_WIDTH;
+      console.log(`Playhead: ${playheadPosition.toFixed(1)}, Frame ${frameRelativeIndex}: ${frameLeft}-${frameRight}, Selected: ${selectedFrameIndex}`);
+    }
     
     // Update frame selection for scroll-based navigation
     if (clampedIndex !== currentFrameIndex) {
@@ -212,14 +213,11 @@ export const TimelineViewer: FC<TimelineViewerProps> = ({
 
     const handleMouseUp = () => {
       if (isDraggingScrollbar && viewMode === 'frames' && activeScene && scrollContainerRef.current) {
-        // PRECISION FIX: Use same precise calculation as handleScroll
+        // ROOT CAUSE FIX: Use same logic as handleScroll for consistency
         const container = scrollContainerRef.current;
         const playheadPosition = container.scrollLeft + (container.offsetWidth / 2);
-        const exactFramePosition = playheadPosition / FRAME_WIDTH;
-        const frameRelativeIndex = Math.floor(exactFramePosition);
-        const frameOverlap = exactFramePosition - frameRelativeIndex;
-        const selectedFrameRelativeIndex = frameOverlap >= 0.5 ? frameRelativeIndex + 1 : frameRelativeIndex;
-        const selectedFrameIndex = activeScene.startFrame + selectedFrameRelativeIndex;
+        const frameRelativeIndex = Math.floor(playheadPosition / FRAME_WIDTH);
+        const selectedFrameIndex = activeScene.startFrame + frameRelativeIndex;
         const clampedIndex = Math.max(activeScene.startFrame, Math.min(activeScene.endFrame, selectedFrameIndex));
         
         if (clampedIndex !== currentFrameIndex) {
