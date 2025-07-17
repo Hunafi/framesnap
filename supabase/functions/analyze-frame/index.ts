@@ -6,6 +6,10 @@ const openAIApiKey = Deno.env.get('OPENAI_API_KEY');
 const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
 const supabaseKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
 
+console.log('Starting analyze-frame function');
+console.log('OpenAI API key configured:', !!openAIApiKey);
+console.log('Supabase URL configured:', !!supabaseUrl);
+
 const supabase = createClient(supabaseUrl, supabaseKey);
 
 const corsHeaders = {
@@ -24,6 +28,10 @@ serve(async (req) => {
 
     if (!imageData) {
       throw new Error('Image data is required');
+    }
+
+    if (!openAIApiKey) {
+      throw new Error('OpenAI API key not configured');
     }
 
     console.log('Analyzing frame with GPT-4o-mini');

@@ -6,6 +6,10 @@ const openAIApiKey = Deno.env.get('OPENAI_API_KEY');
 const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
 const supabaseKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
 
+console.log('Starting generate-prompt function');
+console.log('OpenAI API key configured:', !!openAIApiKey);
+console.log('Supabase URL configured:', !!supabaseUrl);
+
 const supabase = createClient(supabaseUrl, supabaseKey);
 
 const corsHeaders = {
@@ -22,8 +26,12 @@ serve(async (req) => {
   try {
     const { imageData, imageDescription, customInstructions } = await req.json();
 
-    if (!imageData) {
-      throw new Error('Image data is required');
+    if (!imageData && !imageDescription) {
+      throw new Error('Either image data or image description is required');
+    }
+
+    if (!openAIApiKey) {
+      throw new Error('OpenAI API key not configured');
     }
 
     console.log('Generating AI prompt for frame');

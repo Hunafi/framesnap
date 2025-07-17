@@ -159,9 +159,9 @@ export function useSmartAIProcessor(onUpdateFrame?: (frameIndex: number, updates
         isFromCache: true,
         progress: 100
       });
-      // Update parent component with cached result
-      onUpdateFrame?.(frameIndex, { aiDescription: cachedData.ai_description });
-      return cachedData.ai_description;
+        // Update parent component with cached result
+        onUpdateFrame?.(frameIndex, { aiDescription: cachedData.ai_description });
+        return cachedData.ai_description;
       }
 
       updateFrameState(frameIndex, { progress: 30 });
@@ -206,7 +206,9 @@ export function useSmartAIProcessor(onUpdateFrame?: (frameIndex: number, updates
         progress: 100
       });
       // Update parent component with result
-      onUpdateFrame?.(frameIndex, { aiDescription: result });
+      if (result) {
+        onUpdateFrame?.(frameIndex, { aiDescription: result });
+      }
       return result;
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'Failed to analyze frame';
@@ -257,7 +259,9 @@ export function useSmartAIProcessor(onUpdateFrame?: (frameIndex: number, updates
         progress: 100
       });
       // Update parent component with result
-      onUpdateFrame?.(frameIndex, { aiPrompt: result });
+      if (result) {
+        onUpdateFrame?.(frameIndex, { aiPrompt: result });
+      }
       return result;
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'Failed to generate prompt';

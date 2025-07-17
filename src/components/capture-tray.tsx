@@ -45,53 +45,23 @@ export const CaptureTray: FC<CaptureTrayProps> = ({ capturedFrames, onClear, onD
 
   const handleAnalyzeFrame = async (frame: CapturedFrame) => {
     try {
+      console.log(`Starting analysis for frame ${frame.index}`);
       await smartProcessor.processFrames([
         { index: frame.index, dataUrl: frame.dataUrl, operation: 'analyze' }
       ]);
-      
-      // Check if processing completed successfully
-      const frameState = smartProcessor.getFrameState(frame.index);
-      if (!frameState.error && !frameState.isAnalyzing) {
-        toast({ title: 'Frame analyzed successfully!' });
-      } else if (frameState.error) {
-        toast({
-          title: 'Analysis Failed',
-          description: frameState.error,
-          variant: 'destructive',
-        });
-      }
     } catch (error) {
-      toast({
-        title: 'Analysis Failed',
-        description: 'Could not analyze the frame. Please try again.',
-        variant: 'destructive',
-      });
+      console.error(`Analysis error for frame ${frame.index}:`, error);
     }
   };
 
   const handleGeneratePrompt = async (frame: CapturedFrame) => {
     try {
+      console.log(`Starting prompt generation for frame ${frame.index}`);
       await smartProcessor.processFrames([
         { index: frame.index, dataUrl: frame.dataUrl, operation: 'prompt', imageDescription: frame.aiDescription }
       ]);
-      
-      // Check if processing completed successfully
-      const frameState = smartProcessor.getFrameState(frame.index);
-      if (!frameState.error && !frameState.isGeneratingPrompt) {
-        toast({ title: 'AI prompt generated successfully!' });
-      } else if (frameState.error) {
-        toast({
-          title: 'Prompt Generation Failed',
-          description: frameState.error,
-          variant: 'destructive',
-        });
-      }
     } catch (error) {
-      toast({
-        title: 'Prompt Generation Failed',
-        description: 'Could not generate AI prompt. Please try again.',
-        variant: 'destructive',
-      });
+      console.error(`Prompt generation error for frame ${frame.index}:`, error);
     }
   };
 
