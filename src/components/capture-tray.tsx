@@ -370,6 +370,30 @@ export const CaptureTray: FC<CaptureTrayProps> = ({ capturedFrames, onClear, onD
     onUpdateFrame(frameIndex, { [field]: value });
   };
 
+  const handleDownloadFrame = async (frame: CapturedFrame) => {
+    try {
+      const response = await fetch(frame.dataUrl);
+      const blob = await response.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `frame_${frame.index}.jpg`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+      
+      toast({ title: `Frame ${frame.index} downloaded successfully!` });
+    } catch (error) {
+      console.error('Error downloading frame:', error);
+      toast({
+        title: 'Download Failed',
+        description: 'Could not download the frame. Please try again.',
+        variant: 'destructive',
+      });
+    }
+  };
+
   return (
     <Card className="w-full bg-card/95 mt-4">
       <CardHeader className="flex flex-row items-center justify-between gap-4">
@@ -515,16 +539,28 @@ export const CaptureTray: FC<CaptureTrayProps> = ({ capturedFrames, onClear, onD
                         )}
                       </div>
                     </TableCell>
-                    <TableCell className="p-2">
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        onClick={() => onDelete(frame)}
-                        className="h-8 w-8 text-muted-foreground hover:text-destructive"
-                      >
-                        <X className="h-4 w-4" />
-                      </Button>
-                    </TableCell>
+                     <TableCell className="p-2">
+                       <div className="flex items-center gap-1">
+                         <Button
+                           variant="ghost"
+                           size="icon"
+                           onClick={() => handleDownloadFrame(frame)}
+                           className="h-8 w-8 text-muted-foreground hover:text-primary"
+                           title={`Download frame ${frame.index}`}
+                         >
+                           <Download className="h-4 w-4" />
+                         </Button>
+                         <Button
+                           variant="ghost"
+                           size="icon"
+                           onClick={() => onDelete(frame)}
+                           className="h-8 w-8 text-muted-foreground hover:text-destructive"
+                           title={`Delete frame ${frame.index}`}
+                         >
+                           <X className="h-4 w-4" />
+                         </Button>
+                       </div>
+                     </TableCell>
                   </TableRow>
                 ))}
               </TableBody>
