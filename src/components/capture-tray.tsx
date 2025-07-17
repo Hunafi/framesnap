@@ -488,15 +488,14 @@ export const CaptureTray: FC<CaptureTrayProps> = ({ capturedFrames, onClear, onD
                              #{frame.index}
                            </Badge>
                          </div>
-                         <Button
-                           variant="outline"
-                           size="sm"
-                           onClick={() => handleDownloadFrame(frame)}
-                           className="w-full text-xs"
-                         >
-                           <Download className="w-3 h-3 mr-1" />
-                           Download
-                         </Button>
+                          <Button
+                            variant="outline"
+                            size="icon"
+                            onClick={() => handleDownloadFrame(frame)}
+                            className="h-8 w-8"
+                          >
+                            <Download className="h-4 w-4" />
+                          </Button>
                        </div>
                      </TableCell>
                     <TableCell className="p-2">
