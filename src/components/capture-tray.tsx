@@ -16,7 +16,7 @@ import { useToast } from '@/hooks/use-toast';
 import { useSmartAIProcessor } from '@/hooks/use-smart-ai-processor';
 import { useTokenBudgetManager } from '@/hooks/use-token-budget-manager';
 import { useAdvancedRequestManager } from '@/hooks/use-advanced-request-manager';
-import { AIProcessingDashboard } from './ai-processing-dashboard';
+
 import { CopyableTextarea } from './copyable-textarea';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from './ui/dialog';
 import { AspectRatio } from './ui/aspect-ratio';
@@ -39,7 +39,7 @@ export const CaptureTray: FC<CaptureTrayProps> = ({ capturedFrames, onClear, onD
   const [editingField, setEditingField] = useState<string | null>(null);
   const [selectedFrame, setSelectedFrame] = useState<{ frameIndex: number; dataUrl: string } | null>(null);
   const { toast } = useToast();
-  const smartProcessor = useSmartAIProcessor();
+  const smartProcessor = useSmartAIProcessor(onUpdateFrame);
   const tokenManager = useTokenBudgetManager();
   const requestManager = useAdvancedRequestManager();
 
@@ -441,18 +441,20 @@ export const CaptureTray: FC<CaptureTrayProps> = ({ capturedFrames, onClear, onD
 
   return (
     <div className="space-y-4 mt-4">
-      {/* Level 3 AI Processing Dashboard */}
-      {progress.phase !== 'idle' && (
-        <AIProcessingDashboard
-          progress={progress}
-          tokenManager={tokenManager}
-          requestManager={requestManager}
-          onPause={smartProcessor.pauseProcessing}
-          onResume={smartProcessor.resumeProcessing}
-          onStop={smartProcessor.stopProcessing}
-          onRetryFailed={smartProcessor.retryFailedFrames}
-          onProfileChange={smartProcessor.setQualityProfile}
-        />
+      {/* Simple status indicator when processing */}
+      {progress.phase === 'processing' && (
+        <div className="bg-card border rounded-lg p-4 mb-4">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <Loader2 className="h-4 w-4 animate-spin" />
+              <span>Processing {progress.completedFrames}/{progress.totalFrames} frames</span>
+            </div>
+            <Button variant="outline" size="sm" onClick={smartProcessor.stopProcessing}>
+              <StopCircle className="mr-2 h-4 w-4" />
+              Stop
+            </Button>
+          </div>
+        </div>
       )}
 
       <Card className="w-full bg-card/95">
@@ -510,6 +512,15 @@ export const CaptureTray: FC<CaptureTrayProps> = ({ capturedFrames, onClear, onD
             >
               <Sparkles className="mr-2 h-4 w-4" />
               Generate All Prompts
+            </Button>
+            <Button 
+              onClick={smartProcessor.retryFailedFrames} 
+              variant="outline" 
+              size="sm"
+              disabled={progress.phase === 'processing' || progress.failedFrames === 0}
+            >
+              <RefreshCw className="mr-2 h-4 w-4" />
+              Retry Failed ({progress.failedFrames})
             </Button>
             <div className="ml-auto flex items-center gap-2">
               <Select 

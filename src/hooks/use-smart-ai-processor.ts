@@ -60,7 +60,7 @@ const generateImageHash = async (imageData: string): Promise<string> => {
   return hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
 };
 
-export function useSmartAIProcessor(): UseSmartAIProcessorReturn {
+export function useSmartAIProcessor(onUpdateFrame?: (frameIndex: number, updates: { aiDescription?: string; aiPrompt?: string }) => void): UseSmartAIProcessorReturn {
   const [frameStates, setFrameStates] = useState<Map<number, ProcessingState>>(new Map());
   const [progress, setProgress] = useState<SmartBatchProgress>({
     phase: 'idle',
@@ -152,14 +152,16 @@ export function useSmartAIProcessor(): UseSmartAIProcessorReturn {
       
       if (cachedData?.ai_description) {
         console.log(`Using cached description for frame ${frameIndex}`);
-        updateFrameState(frameIndex, { 
-          isAnalyzing: false, 
-          retryCount: 0,
-          canStop: false,
-          isFromCache: true,
-          progress: 100
-        });
-        return cachedData.ai_description;
+      updateFrameState(frameIndex, { 
+        isAnalyzing: false, 
+        retryCount: 0,
+        canStop: false,
+        isFromCache: true,
+        progress: 100
+      });
+      // Update parent component with cached result
+      onUpdateFrame?.(frameIndex, { aiDescription: cachedData.ai_description });
+      return cachedData.ai_description;
       }
 
       updateFrameState(frameIndex, { progress: 30 });
@@ -203,6 +205,8 @@ export function useSmartAIProcessor(): UseSmartAIProcessorReturn {
         isFromCache: false,
         progress: 100
       });
+      // Update parent component with result
+      onUpdateFrame?.(frameIndex, { aiDescription: result });
       return result;
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'Failed to analyze frame';
@@ -252,6 +256,8 @@ export function useSmartAIProcessor(): UseSmartAIProcessorReturn {
         canStop: false,
         progress: 100
       });
+      // Update parent component with result
+      onUpdateFrame?.(frameIndex, { aiPrompt: result });
       return result;
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'Failed to generate prompt';
