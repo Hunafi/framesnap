@@ -17,7 +17,7 @@ import { VideoUpload } from '@/components/video-upload';
 import { TimelineViewer, type Scene } from '@/components/timeline-viewer';
 import { RotaryControl } from '@/components/rotary-control';
 import { CaptureTray } from '@/components/capture-tray';
-import { AIProcessingDashboard } from '@/components/ai-processing-dashboard';
+import { useDirectAIProcessor } from '@/hooks/use-direct-ai-processor';
 import { Button } from '@/components/ui/button';
 import { useToast } from '@/hooks/use-toast';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
@@ -62,6 +62,7 @@ export function FrameFlow() {
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const { toast } = useToast();
+  const { analyzeFrame, generatePrompt } = useDirectAIProcessor();
 
   const getFrameDataUrl = useCallback((frameIndex: number, quality = 0.8): Promise<string | null> => {
     return new Promise((resolve, reject) => {
@@ -417,7 +418,7 @@ export function FrameFlow() {
     handleFrameSelect(scene.startFrame, 'initial');
   }
 
-  const handleCaptureFrame = async (autoAnalyze: boolean = true) => {
+  const handleCaptureFrame = async () => {
     try {
       if (!getFrameDataUrl) return;
       const dataUrl = await getFrameDataUrl(currentFrameIndex, 0.9);
@@ -432,16 +433,31 @@ export function FrameFlow() {
         const newFrame = { index: currentFrameIndex, dataUrl };
         const newFrames = [...prev, newFrame];
         
-        // Start background analysis if enabled
-        if (autoAnalyze) {
-          // Import and use the hook here would cause issues, so we'll trigger this via the component
-          setTimeout(() => {
-            const analyzeEvent = new CustomEvent('analyzeFrame', { 
-              detail: { frameIndex: currentFrameIndex, dataUrl } 
-            });
-            window.dispatchEvent(analyzeEvent);
-          }, 100);
-        }
+        // Start automatic background processing
+        setTimeout(async () => {
+          const description = await analyzeFrame(currentFrameIndex, dataUrl);
+          if (description) {
+            setCapturedFrames(currentFrames => 
+              currentFrames.map(f => 
+                f.index === currentFrameIndex 
+                  ? { ...f, aiDescription: description }
+                  : f
+              )
+            );
+            
+            // Automatically generate prompt after analysis
+            const prompt = await generatePrompt(currentFrameIndex, dataUrl, description);
+            if (prompt) {
+              setCapturedFrames(currentFrames => 
+                currentFrames.map(f => 
+                  f.index === currentFrameIndex 
+                    ? { ...f, aiPrompt: prompt }
+                    : f
+                )
+              );
+            }
+          }
+        }, 100);
         
         toast({ title: `Frame ${currentFrameIndex} captured!` });
         return newFrames.sort((a,b) => a.index - b.index);
@@ -600,11 +616,6 @@ export function FrameFlow() {
               capturedFrames={capturedFrames} 
               onClear={handleClearAll}
               onDelete={handleDeleteFrame}
-              onUpdateFrame={handleUpdateFrame}
-            />
-
-            <AIProcessingDashboard
-              capturedFrames={capturedFrames}
               onUpdateFrame={handleUpdateFrame}
             />
           </div>

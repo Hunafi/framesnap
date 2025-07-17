@@ -212,32 +212,6 @@ export function useDirectAIProcessor() {
     setRetryTimeouts(prev => new Map(prev.set(frameIndex, timeout)));
   }, [updateFrameState, getFrameState, retryTimeouts, countdownIntervals, analyzeFrame, generatePrompt]);
 
-  const batchProcessWithAutoRetry = useCallback(async (
-    capturedFrames: any[],
-    operation: 'analyze' | 'prompt',
-    onUpdateFrame: (frameIndex: number, updates: any) => void
-  ) => {
-    const framesToProcess = operation === 'analyze' 
-      ? capturedFrames.filter(f => !f.aiDescription)
-      : capturedFrames.filter(f => f.aiDescription && !f.aiPrompt);
-
-    // Process all frames in parallel
-    await Promise.allSettled(
-      framesToProcess.map(async (frame) => {
-        if (operation === 'analyze') {
-          const result = await analyzeFrame(frame.index, frame.dataUrl);
-          if (result) {
-            onUpdateFrame(frame.index, { aiDescription: result });
-          }
-        } else {
-          const result = await generatePrompt(frame.index, frame.dataUrl, frame.aiDescription);
-          if (result) {
-            onUpdateFrame(frame.index, { aiPrompt: result });
-          }
-        }
-      })
-    );
-  }, [analyzeFrame, generatePrompt]);
 
   const clearFrameState = useCallback((frameIndex: number) => {
     // Clear timeouts and intervals
@@ -277,7 +251,6 @@ export function useDirectAIProcessor() {
     retryFrame,
     getFrameState,
     clearFrameState,
-    batchProcessWithAutoRetry,
     scheduleRetry
   };
 }
