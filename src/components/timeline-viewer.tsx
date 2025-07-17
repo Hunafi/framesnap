@@ -141,7 +141,8 @@ export const TimelineViewer: FC<TimelineViewerProps> = ({
   const handleScroll = () => {
     if(scrollTimeoutRef.current) clearTimeout(scrollTimeoutRef.current);
     
-    if (!isAutoScrolling.current && viewMode === 'frames' && activeScene) {
+    // Always update preview when user scrolls, regardless of auto-scroll state
+    if (viewMode === 'frames' && activeScene) {
       requestAnimationFrame(() => {
         if (!scrollContainerRef.current) return;
         const container = scrollContainerRef.current;
