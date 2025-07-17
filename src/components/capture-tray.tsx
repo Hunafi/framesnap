@@ -753,6 +753,7 @@ export const CaptureTray: FC<CaptureTrayProps> = ({ capturedFrames, onClear, onD
           </div>
         )}
       </CardContent>
+      </Card>
 
       {/* Frame Popup Dialog */}
       <Dialog open={!!selectedFrame} onOpenChange={() => setSelectedFrame(null)}>
@@ -773,6 +774,6 @@ export const CaptureTray: FC<CaptureTrayProps> = ({ capturedFrames, onClear, onD
           )}
         </DialogContent>
       </Dialog>
-    </Card>
+    </div>
   );
 };
