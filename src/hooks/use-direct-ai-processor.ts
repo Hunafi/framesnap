@@ -77,7 +77,7 @@ export function useDirectAIProcessor() {
         console.error('Prompt Generation Error:', error);
         updateFrameState(frameIndex, { 
           isGeneratingPrompt: false, 
-          error: error.message || 'Prompt generation failed',
+          error: 'Server busy. Please wait 45 seconds and retry.',
           retryCount: getFrameState(frameIndex).retryCount + 1
         });
         return null;
@@ -89,7 +89,7 @@ export function useDirectAIProcessor() {
       console.error('Prompt Generation Error:', error);
       updateFrameState(frameIndex, { 
         isGeneratingPrompt: false, 
-        error: error instanceof Error ? error.message : 'Prompt generation failed',
+        error: 'Server busy. Please wait 45 seconds and retry.',
         retryCount: getFrameState(frameIndex).retryCount + 1
       });
       return null;

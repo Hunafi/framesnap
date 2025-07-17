@@ -91,10 +91,8 @@ export const TimelineViewer: FC<TimelineViewerProps> = ({
                 }
             }
             
-            // Load 5 frames before and after current frame
-            const loadRange = 5;
-            for (let i = Math.max(startFrame, currentFrameIndex - loadRange); 
-                 i <= Math.min(endFrame, currentFrameIndex + loadRange); i++) {
+            // Load all frames in the scene
+            for (let i = startFrame; i <= endFrame; i++) {
                 if (isCancelled) return;
                 if (i !== currentFrameIndex && !frameCache.has(i)) {
                     try {
