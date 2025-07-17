@@ -108,26 +108,25 @@ export const CaptureTray: FC<CaptureTrayProps> = ({ capturedFrames, onClear, onD
 
   const generatePDF = async () => {
     const pdf = new jsPDF();
-    let yPosition = 20;
+    const pageHeight = pdf.internal.pageSize.height;
+    const margin = 20;
+    let yPosition = margin;
+    
+    // Helper function to check if content fits on current page
+    const checkPageSpace = (requiredHeight: number) => {
+      if (yPosition + requiredHeight > pageHeight - margin) {
+        pdf.addPage();
+        yPosition = margin;
+      }
+    };
     
     // Title
     pdf.setFontSize(20);
-    pdf.text('Frame Sniper - Captured Frames Report', 20, yPosition);
-    yPosition += 20;
+    pdf.text('Frame Sniper - Captured Frames Report', margin, yPosition);
+    yPosition += 25;
     
     for (let i = 0; i < capturedFrames.length; i++) {
       const frame = capturedFrames[i];
-      
-      // Check if we need a new page
-      if (yPosition > 200) {
-        pdf.addPage();
-        yPosition = 20;
-      }
-      
-      // Frame header
-      pdf.setFontSize(14);
-      pdf.text(`Frame ${frame.index}`, 20, yPosition);
-      yPosition += 10;
       
       // Determine image dimensions based on aspect ratio
       let imgWidth, imgHeight;
@@ -141,35 +140,73 @@ export const CaptureTray: FC<CaptureTrayProps> = ({ capturedFrames, onClear, onD
         imgWidth = imgHeight * videoAspectRatio;
       }
       
+      // Calculate content heights
+      const frameHeaderHeight = 15;
+      const imageHeight = imgHeight + 10;
+      
+      let descriptionHeight = 0;
+      if (frame.aiDescription) {
+        const descLines = pdf.splitTextToSize(frame.aiDescription, 170);
+        descriptionHeight = 10 + (descLines.length * 4) + 8; // Header + lines + padding
+      }
+      
+      let promptHeight = 0;
+      if (frame.aiPrompt) {
+        const promptLines = pdf.splitTextToSize(frame.aiPrompt, 170);
+        promptHeight = 10 + (promptLines.length * 4) + 8; // Header + lines + padding
+      }
+      
+      const totalContentHeight = frameHeaderHeight + imageHeight + descriptionHeight + promptHeight + 15;
+      
+      // Check if we need a new page for this frame
+      checkPageSpace(totalContentHeight);
+      
+      // Frame header
+      pdf.setFontSize(14);
+      pdf.text(`Frame ${frame.index}`, margin, yPosition);
+      yPosition += frameHeaderHeight;
+      
       // Add image
       try {
-        pdf.addImage(frame.dataUrl, 'JPEG', 20, yPosition, imgWidth, imgHeight);
+        pdf.addImage(frame.dataUrl, 'JPEG', margin, yPosition, imgWidth, imgHeight);
       } catch (error) {
         console.error('Failed to add image to PDF:', error);
       }
-      yPosition += imgHeight + 10;
+      yPosition += imageHeight;
       
       // AI Description
       if (frame.aiDescription) {
+        // Check if description section fits
+        checkPageSpace(descriptionHeight);
+        
         pdf.setFontSize(10);
-        pdf.text('AI Description:', 20, yPosition);
-        yPosition += 5;
+        pdf.setFont(undefined, 'bold');
+        pdf.text('AI Description:', margin, yPosition);
+        yPosition += 6;
+        
+        pdf.setFont(undefined, 'normal');
         const descLines = pdf.splitTextToSize(frame.aiDescription, 170);
-        pdf.text(descLines, 20, yPosition);
-        yPosition += descLines.length * 5 + 5;
+        pdf.text(descLines, margin, yPosition);
+        yPosition += descLines.length * 4 + 8;
       }
       
       // AI Prompt
       if (frame.aiPrompt) {
+        // Check if prompt section fits
+        checkPageSpace(promptHeight);
+        
         pdf.setFontSize(10);
-        pdf.text('AI Prompt:', 20, yPosition);
-        yPosition += 5;
+        pdf.setFont(undefined, 'bold');
+        pdf.text('AI Prompt:', margin, yPosition);
+        yPosition += 6;
+        
+        pdf.setFont(undefined, 'normal');
         const promptLines = pdf.splitTextToSize(frame.aiPrompt, 170);
-        pdf.text(promptLines, 20, yPosition);
-        yPosition += promptLines.length * 5 + 10;
+        pdf.text(promptLines, margin, yPosition);
+        yPosition += promptLines.length * 4 + 8;
       }
       
-      yPosition += 10;
+      yPosition += 15; // Extra spacing between frames
     }
     
     // Save PDF
