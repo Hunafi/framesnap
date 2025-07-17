@@ -14,7 +14,7 @@ interface AIProcessingDashboardProps {
 }
 
 export function AIProcessingDashboard({ capturedFrames, onUpdateFrame }: AIProcessingDashboardProps) {
-  const { analyzeFrame, generatePrompt, retryFrame, getFrameState } = useDirectAIProcessor();
+  const { analyzeFrame, generatePrompt, retryFrame, getFrameState, batchProcessWithAutoRetry } = useDirectAIProcessor();
   const [activeTab, setActiveTab] = useState<'analyze' | 'prompt'>('analyze');
 
   const handleAnalyzeFrame = async (frame: CapturedFrame) => {
@@ -32,17 +32,11 @@ export function AIProcessingDashboard({ capturedFrames, onUpdateFrame }: AIProce
   };
 
   const handleBatchAnalyze = async () => {
-    const framesToAnalyze = capturedFrames.filter(f => !f.aiDescription);
-    for (const frame of framesToAnalyze) {
-      await handleAnalyzeFrame(frame);
-    }
+    await batchProcessWithAutoRetry(capturedFrames, 'analyze', onUpdateFrame);
   };
 
   const handleBatchPrompt = async () => {
-    const framesToPrompt = capturedFrames.filter(f => f.aiDescription && !f.aiPrompt);
-    for (const frame of framesToPrompt) {
-      await handleGeneratePrompt(frame);
-    }
+    await batchProcessWithAutoRetry(capturedFrames, 'prompt', onUpdateFrame);
   };
 
   const handleRetryAllFailed = async (type: 'analyze' | 'prompt') => {
@@ -96,7 +90,7 @@ export function AIProcessingDashboard({ capturedFrames, onUpdateFrame }: AIProce
               </p>
               <Button onClick={handleBatchAnalyze} disabled={capturedFrames.length === 0}>
                 <Brain className="h-4 w-4 mr-2" />
-                Analyze All
+                Process All Frames
               </Button>
             </div>
             
@@ -110,24 +104,22 @@ export function AIProcessingDashboard({ capturedFrames, onUpdateFrame }: AIProce
                         <span className="text-sm font-medium">Frame {frame.index}</span>
                         {frame.aiDescription && <Badge variant="secondary">Analyzed</Badge>}
                         {state.isAnalyzing && <Loader2 className="h-4 w-4 animate-spin" />}
-                        {state.error && <Badge variant="destructive">Error</Badge>}
+                        {state.isWaitingToRetry && (
+                          <Badge className="bg-primary text-primary-foreground animate-pulse">
+                            Processing in {state.retryCountdown}s
+                          </Badge>
+                        )}
+                        {state.error && <Badge variant="destructive">{state.error}</Badge>}
                       </div>
                       <div className="flex items-center gap-2">
-                        {state.error && (
-                          <Button 
-                            size="sm" 
-                            variant="outline"
-                            onClick={() => handleRetryAllFailed('analyze')}
-                          >
-                            <RefreshCw className="h-3 w-3" />
-                          </Button>
-                        )}
                         <Button 
                           size="sm" 
                           onClick={() => handleAnalyzeFrame(frame)}
-                          disabled={state.isAnalyzing}
+                          disabled={state.isAnalyzing || state.isWaitingToRetry}
                         >
-                          {state.isAnalyzing ? 'Analyzing...' : 'Analyze'}
+                          {state.isAnalyzing ? 'Analyzing...' : 
+                           state.isWaitingToRetry ? `Retrying in ${state.retryCountdown}s` : 
+                           'Analyze'}
                         </Button>
                       </div>
                     </div>
@@ -144,7 +136,7 @@ export function AIProcessingDashboard({ capturedFrames, onUpdateFrame }: AIProce
               </p>
               <Button onClick={handleBatchPrompt} disabled={getAnalyzedCount() === 0}>
                 <Lightbulb className="h-4 w-4 mr-2" />
-                Generate All
+                Process All Prompts
               </Button>
             </div>
             
@@ -159,24 +151,22 @@ export function AIProcessingDashboard({ capturedFrames, onUpdateFrame }: AIProce
                         {frame.aiPrompt && <Badge variant="secondary">Generated</Badge>}
                         {!frame.aiDescription && <Badge variant="outline">Need Analysis</Badge>}
                         {state.isGeneratingPrompt && <Loader2 className="h-4 w-4 animate-spin" />}
-                        {state.error && <Badge variant="destructive">Error</Badge>}
+                        {state.isWaitingToRetry && (
+                          <Badge className="bg-primary text-primary-foreground animate-pulse">
+                            Processing in {state.retryCountdown}s
+                          </Badge>
+                        )}
+                        {state.error && <Badge variant="destructive">{state.error}</Badge>}
                       </div>
                       <div className="flex items-center gap-2">
-                        {state.error && (
-                          <Button 
-                            size="sm" 
-                            variant="outline"
-                            onClick={() => handleRetryAllFailed('prompt')}
-                          >
-                            <RefreshCw className="h-3 w-3" />
-                          </Button>
-                        )}
                         <Button 
                           size="sm" 
                           onClick={() => handleGeneratePrompt(frame)}
-                          disabled={!frame.aiDescription || state.isGeneratingPrompt}
+                          disabled={!frame.aiDescription || state.isGeneratingPrompt || state.isWaitingToRetry}
                         >
-                          {state.isGeneratingPrompt ? 'Generating...' : 'Generate'}
+                          {state.isGeneratingPrompt ? 'Generating...' : 
+                           state.isWaitingToRetry ? `Retrying in ${state.retryCountdown}s` : 
+                           'Generate'}
                         </Button>
                       </div>
                     </div>
