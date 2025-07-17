@@ -45,6 +45,10 @@ export const TimelineViewer: FC<TimelineViewerProps> = ({
   
   const isAutoScrolling = useRef(false);
   const scrollTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  
+  // Scrollbar drag state
+  const [isDragging, setIsDragging] = useState(false);
+  const dragStartRef = useRef({ x: 0, scrollLeft: 0 });
 
   const timelineFrames = useMemo(() => {
     if (viewMode === 'frames' && activeScene) {
@@ -179,6 +183,57 @@ export const TimelineViewer: FC<TimelineViewerProps> = ({
         scrollContainerRef.current.scrollLeft += e.deltaY;
     }
   };
+
+  // Scrollbar drag handlers
+  const handleScrollbarMouseDown = (e: React.MouseEvent) => {
+    if (!scrollContainerRef.current) return;
+    
+    setIsDragging(true);
+    isAutoScrolling.current = false; // Stop any auto-scrolling
+    
+    dragStartRef.current = {
+      x: e.clientX,
+      scrollLeft: scrollContainerRef.current.scrollLeft
+    };
+    
+    e.preventDefault();
+  };
+
+  useEffect(() => {
+    const handleMouseMove = (e: MouseEvent) => {
+      if (!isDragging || !scrollContainerRef.current) return;
+      
+      e.preventDefault();
+      
+      const container = scrollContainerRef.current;
+      const scrollbarTrack = container.parentElement?.querySelector('.scrollbar-track') as HTMLElement;
+      if (!scrollbarTrack) return;
+      
+      const deltaX = e.clientX - dragStartRef.current.x;
+      const trackWidth = scrollbarTrack.offsetWidth;
+      const scrollableWidth = container.scrollWidth - container.clientWidth;
+      
+      // Calculate scroll position based on drag distance
+      const scrollRatio = deltaX / trackWidth;
+      const newScrollLeft = dragStartRef.current.scrollLeft + (scrollRatio * scrollableWidth);
+      
+      container.scrollLeft = Math.max(0, Math.min(scrollableWidth, newScrollLeft));
+    };
+
+    const handleMouseUp = () => {
+      setIsDragging(false);
+    };
+
+    if (isDragging) {
+      document.addEventListener('mousemove', handleMouseMove);
+      document.addEventListener('mouseup', handleMouseUp);
+      
+      return () => {
+        document.removeEventListener('mousemove', handleMouseMove);
+        document.removeEventListener('mouseup', handleMouseUp);
+      };
+    }
+  }, [isDragging]);
 
   const handleSceneClick = (scene: Scene) => {
     onSceneSelect(scene);
@@ -357,10 +412,13 @@ export const TimelineViewer: FC<TimelineViewerProps> = ({
            {renderFrames()}
         </div>
         
-        {/* Always visible neon green custom scrollbar */}
-        <div className="relative h-4 mx-2 mb-4 bg-gray-800/30 rounded-full">
+        {/* Always visible neon green custom scrollbar with drag functionality */}
+        <div className="scrollbar-track relative h-4 mx-2 mb-4 bg-gray-800/30 rounded-full">
           <div 
-            className="absolute top-1/2 -translate-y-1/2 h-3 bg-primary rounded-full shadow-lg shadow-primary/30 hover:bg-primary/80 transition-colors cursor-pointer"
+            className={cn(
+              "absolute top-1/2 -translate-y-1/2 h-3 bg-primary rounded-full shadow-lg shadow-primary/30 transition-colors cursor-grab",
+              isDragging ? "cursor-grabbing bg-primary scale-105" : "hover:bg-primary/80"
+            )}
             style={{
               width: viewMode === 'frames' && activeScene && scrollContainerRef.current ? 
                 `${Math.min(100, (scrollContainerRef.current.clientWidth / scrollContainerRef.current.scrollWidth) * 100)}%` : 
@@ -369,6 +427,7 @@ export const TimelineViewer: FC<TimelineViewerProps> = ({
                 `${Math.min(80, (scrollContainerRef.current.scrollLeft / (scrollContainerRef.current.scrollWidth - scrollContainerRef.current.clientWidth)) * 80)}%` : 
                 '0%'
             }}
+            onMouseDown={handleScrollbarMouseDown}
           />
         </div>
       </div>
