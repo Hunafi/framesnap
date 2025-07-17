@@ -125,24 +125,39 @@ export function FrameFlow() {
         const ctx = canvas.getContext('2d', { willReadFrequently: true });
         if (!ctx) throw new Error("No canvas context");
 
-        // This is a reliable way to wait for the seek to complete
+        // More reliable seeking with longer timeout and better error handling
         await new Promise<void>((resolve, reject) => {
             const onSeeked = () => {
                 video.removeEventListener('seeked', onSeeked);
                 video.removeEventListener('error', onError);
+                video.removeEventListener('loadeddata', onSeeked); // Also listen for loadeddata
                 resolve();
             };
             const onError = (e: Event) => {
                 video.removeEventListener('seeked', onSeeked);
                 video.removeEventListener('error', onError);
+                video.removeEventListener('loadeddata', onSeeked);
                 reject(new Error("Video seek error during downsampling"));
             };
 
             video.addEventListener('seeked', onSeeked, { once: true });
             video.addEventListener('error', onError, { once: true });
+            video.addEventListener('loadeddata', onSeeked, { once: true }); // Fallback for some browsers
             
-            // Add a timeout to prevent getting stuck
-            setTimeout(() => reject(new Error("Video seek timeout")), 2000);
+            // Increased timeout for larger videos
+            const timeoutId = setTimeout(() => {
+                video.removeEventListener('seeked', onSeeked);
+                video.removeEventListener('error', onError);
+                video.removeEventListener('loadeddata', onSeeked);
+                reject(new Error("Video seek timeout"));
+            }, 5000); // Increased to 5 seconds
+
+            // Clear timeout if resolved early
+            const originalResolve = resolve;
+            resolve = () => {
+                clearTimeout(timeoutId);
+                originalResolve();
+            };
         });
 
         ctx.drawImage(video, 0, 0, DOWNSAMPLE_WIDTH, DOWNSAMPLE_HEIGHT);
@@ -151,33 +166,91 @@ export function FrameFlow() {
 
     const detectScenes = useCallback(async (duration: number) => {
         if (!videoRef.current || !canvasRef.current) return;
-        const video = videoRef.current;
-        const canvas = canvasRef.current;
         
-        canvas.width = DOWNSAMPLE_WIDTH;
-        canvas.height = DOWNSAMPLE_HEIGHT;
+        try {
+            const video = videoRef.current;
+            const canvas = canvasRef.current;
+            
+            canvas.width = DOWNSAMPLE_WIDTH;
+            canvas.height = DOWNSAMPLE_HEIGHT;
 
-        const totalFramesInVideo = Math.floor(duration * FPS);
+            const totalFramesInVideo = Math.floor(duration * FPS);
+            
+            // Try advanced scene detection first, fallback to simple if it fails
+            try {
+                const newScenes = await performAdvancedSceneDetection(video, canvas, totalFramesInVideo, duration);
+                setScenes(newScenes);
+                setActiveScene(newScenes[0] ?? null);
+                setCurrentFrameIndex(newScenes[0]?.startFrame ?? 0);
+                setAppState('ready');
+                return;
+            } catch (advancedError) {
+                console.warn('Advanced scene detection failed, falling back to simple detection:', advancedError);
+                // Fall through to simple detection
+            }
+            
+            // Simple fallback scene detection
+            const newScenes: Scene[] = [];
+            const sceneLength = Math.min(FPS * 8, Math.floor(totalFramesInVideo / 3)); // Max 8 seconds or divide into 3 parts
+            
+            for (let i = 0; i < totalFramesInVideo; i += sceneLength) {
+                const start = i;
+                const end = Math.min(i + sceneLength - 1, totalFramesInVideo - 1);
+                
+                if (end > start) {
+                    newScenes.push({ startFrame: start, endFrame: end });
+                }
+            }
+            
+            // Ensure we have at least one scene
+            if (newScenes.length === 0) {
+                newScenes.push({ startFrame: 0, endFrame: totalFramesInVideo - 1 });
+            }
+            
+            setScenes(newScenes);
+            setActiveScene(newScenes[0] ?? null);
+            setCurrentFrameIndex(newScenes[0]?.startFrame ?? 0);
+            setAppState('ready');
+            
+        } catch (error) {
+            console.error('Scene detection failed completely:', error);
+            setAppState('error');
+        }
+    }, [getDownsampledFrameData]);
+
+    // Advanced scene detection with timeout protection
+    const performAdvancedSceneDetection = async (
+        video: HTMLVideoElement, 
+        canvas: HTMLCanvasElement, 
+        totalFramesInVideo: number,
+        duration: number
+    ): Promise<Scene[]> => {
         const frameDiffs: number[] = [];
         const histogramDiffs: number[] = [];
 
-        // Sample every 0.5 seconds for better performance
-        const frameStep = Math.floor(FPS * 0.5);
+        // Sample every 1 second for faster processing on long videos
+        const frameStep = Math.max(Math.floor(FPS * 0.8), 15); // At least 15 frames between samples
+        const maxSamples = Math.min(50, Math.floor(totalFramesInVideo / frameStep)); // Limit to 50 samples max
         
-        // 1. Calculate frame-to-frame differences with histogram analysis
+        // Set initial position
         video.currentTime = 0;
-        await new Promise(res => setTimeout(res, 100));
+        await new Promise(res => setTimeout(res, 200));
         
         let prevFrameData = await getDownsampledFrameData(video, canvas);
         let prevHistogram = calculateHistogram(prevFrameData);
 
-        for (let i = frameStep; i < totalFramesInVideo; i += frameStep) {
-            video.currentTime = i / FPS;
+        // Process samples with timeout protection
+        for (let sampleIndex = 1; sampleIndex < maxSamples; sampleIndex++) {
+            const frameIndex = sampleIndex * frameStep;
+            if (frameIndex >= totalFramesInVideo) break;
+            
+            video.currentTime = frameIndex / FPS;
+            
             try {
                 const currentFrameData = await getDownsampledFrameData(video, canvas);
                 const currentHistogram = calculateHistogram(currentFrameData);
                 
-                // Calculate pixel difference
+                // Calculate differences
                 let pixelDiff = 0;
                 for (let j = 0; j < currentFrameData.length; j += 4) {
                     const rDiff = Math.abs(currentFrameData[j] - prevFrameData[j]);
@@ -186,7 +259,6 @@ export function FrameFlow() {
                     pixelDiff += (rDiff + gDiff + bDiff) / 3;
                 }
                 
-                // Calculate histogram difference (more reliable for scene changes)
                 let histDiff = 0;
                 for (let k = 0; k < 256; k++) {
                     histDiff += Math.abs(currentHistogram[k] - prevHistogram[k]);
@@ -198,39 +270,36 @@ export function FrameFlow() {
                 prevFrameData = currentFrameData;
                 prevHistogram = currentHistogram;
             } catch (e) {
-                console.warn(`Could not analyze frame ${i}:`, e);
+                console.warn(`Could not analyze frame ${frameIndex}:`, e);
                 frameDiffs.push(0);
                 histogramDiffs.push(0);
             }
         }
 
-        // 2. Detect scene boundaries using adaptive thresholding
+        // Detect scene boundaries
         const sceneCuts: number[] = [0];
-        const windowSize = Math.max(3, Math.floor(FPS / frameStep)); // ~1 second window
+        const windowSize = Math.max(2, Math.floor(histogramDiffs.length / 10));
         
         for (let i = windowSize; i < histogramDiffs.length - windowSize; i++) {
             const window = histogramDiffs.slice(i - windowSize, i + windowSize);
             const mean = window.reduce((a, b) => a + b, 0) / window.length;
             const stdDev = Math.sqrt(window.map(x => Math.pow(x - mean, 2)).reduce((a, b) => a + b) / window.length);
             
-            // Adaptive threshold based on local statistics
-            const threshold = mean + stdDev * 2.5;
-            const minThreshold = 50000; // Absolute minimum for scene change
+            const threshold = mean + stdDev * 2.0;
+            const minThreshold = 30000;
             
             if (histogramDiffs[i] > Math.max(threshold, minThreshold)) {
-                const frameIndex = i * frameStep;
+                const frameIndex = (i + 1) * frameStep;
                 const lastCut = sceneCuts[sceneCuts.length - 1] ?? 0;
-                const minSceneDuration = FPS * 2; // Minimum 2 seconds per scene
+                const minSceneDuration = FPS * 3; // 3 seconds minimum
                 
                 if (frameIndex - lastCut > minSceneDuration) {
                     sceneCuts.push(frameIndex);
-                    // Skip ahead to avoid multiple detections for same transition
-                    i += Math.floor(windowSize / 2);
                 }
             }
         }
         
-        // 3. Create Scene objects with refined boundaries
+        // Create scenes
         const newScenes: Scene[] = [];
         for (let i = 0; i < sceneCuts.length; i++) {
             const start = sceneCuts[i];
@@ -241,32 +310,21 @@ export function FrameFlow() {
             }
         }
         
-        // Ensure we have at least one scene
-        if (newScenes.length === 0) {
-            newScenes.push({ startFrame: 0, endFrame: totalFramesInVideo - 1 });
-        }
-        
         // Reset video position
         video.currentTime = 0;
-
-        setScenes(newScenes);
-        setActiveScene(newScenes[0] ?? null);
-        setCurrentFrameIndex(newScenes[0]?.startFrame ?? 0);
-        setAppState('ready');
-
-    }, [getDownsampledFrameData]);
+        
+        return newScenes.length > 0 ? newScenes : [{ startFrame: 0, endFrame: totalFramesInVideo - 1 }];
+    };
 
     // Helper function to calculate color histogram
     const calculateHistogram = (imageData: Uint8ClampedArray): number[] => {
         const histogram = new Array(256).fill(0);
         
-        // Calculate luminance histogram for better scene detection
         for (let i = 0; i < imageData.length; i += 4) {
             const r = imageData[i];
             const g = imageData[i + 1];
             const b = imageData[i + 2];
             
-            // Convert to luminance (grayscale)
             const luminance = Math.floor(0.299 * r + 0.587 * g + 0.114 * b);
             histogram[luminance]++;
         }
