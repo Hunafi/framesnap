@@ -54,13 +54,13 @@ export const TimelineViewer: FC<TimelineViewerProps> = ({
   }, [viewMode, activeScene]);
 
 
-  // Level 4 Simple Frame Loading - No complex batching, immediate load
+  // Immediate frame loading with priority for current frame
   useEffect(() => {
     let isCancelled = false;
 
     const loadFrames = async () => {
         if (viewMode === 'scenes') {
-            // Load scene thumbnails one by one for stability
+            // Load scene thumbnails
             for (const scene of scenes) {
                 if (isCancelled) return;
                 if (!frameCache.has(scene.startFrame)) {
@@ -75,33 +75,44 @@ export const TimelineViewer: FC<TimelineViewerProps> = ({
                 }
             }
         } else if (viewMode === 'frames' && activeScene) {
-            // Simple sequential loading starting from current frame
-            const startFrame = activeScene.startFrame;
-            const endFrame = activeScene.endFrame;
-            
-            // Load current frame immediately
+            // CRITICAL: Load current frame first to prevent loading state
             if (!frameCache.has(currentFrameIndex)) {
                 try {
-                    const dataUrl = await getFrameDataUrl(currentFrameIndex, 0.5);
+                    const dataUrl = await getFrameDataUrl(currentFrameIndex, 0.6);
                     if (dataUrl && !isCancelled) {
                         setFrameCache(prev => new Map(prev).set(currentFrameIndex, dataUrl));
                     }
                 } catch(e) {
-                    console.warn(`Frame ${currentFrameIndex} load failed:`, e);
+                    console.warn(`Current frame ${currentFrameIndex} load failed:`, e);
                 }
             }
             
-            // Load all frames in the scene
-            for (let i = startFrame; i <= endFrame; i++) {
+            // Then load surrounding frames for smooth scrolling
+            const startFrame = activeScene.startFrame;
+            const endFrame = activeScene.endFrame;
+            const currentRelative = currentFrameIndex - startFrame;
+            
+            // Load frames in order of priority: current, then adjacent, then rest
+            const loadOrder = [];
+            for (let offset = 0; offset <= Math.max(currentRelative, endFrame - currentFrameIndex); offset++) {
+                if (currentFrameIndex - offset >= startFrame && currentFrameIndex - offset !== currentFrameIndex) {
+                    loadOrder.push(currentFrameIndex - offset);
+                }
+                if (currentFrameIndex + offset <= endFrame && currentFrameIndex + offset !== currentFrameIndex) {
+                    loadOrder.push(currentFrameIndex + offset);
+                }
+            }
+            
+            for (const frameIndex of loadOrder) {
                 if (isCancelled) return;
-                if (i !== currentFrameIndex && !frameCache.has(i)) {
+                if (!frameCache.has(frameIndex)) {
                     try {
-                        const dataUrl = await getFrameDataUrl(i, 0.5);
+                        const dataUrl = await getFrameDataUrl(frameIndex, 0.5);
                         if (dataUrl && !isCancelled) {
-                            setFrameCache(prev => new Map(prev).set(i, dataUrl));
+                            setFrameCache(prev => new Map(prev).set(frameIndex, dataUrl));
                         }
                     } catch(e) {
-                        console.warn(`Frame ${i} load failed:`, e);
+                        console.warn(`Frame ${frameIndex} load failed:`, e);
                     }
                 }
             }
@@ -110,7 +121,7 @@ export const TimelineViewer: FC<TimelineViewerProps> = ({
     
     loadFrames();
     return () => { isCancelled = true; };
-  }, [scenes, viewMode, activeScene, currentFrameIndex]);
+  }, [scenes, viewMode, activeScene, currentFrameIndex, getFrameDataUrl]);
 
   // Level 4 Simplified: Remove complex visible range calculations that cause blanking
   const renderVisibleFrames = useMemo(() => {
@@ -141,20 +152,20 @@ export const TimelineViewer: FC<TimelineViewerProps> = ({
   const handleScroll = () => {
     if(scrollTimeoutRef.current) clearTimeout(scrollTimeoutRef.current);
     
-    // Always update preview when user scrolls, regardless of auto-scroll state
+    // Immediate scroll response for smooth frame selection under playhead
     if (viewMode === 'frames' && activeScene) {
-      requestAnimationFrame(() => {
-        if (!scrollContainerRef.current) return;
-        const container = scrollContainerRef.current;
-        const centerOfViewport = container.scrollLeft + (container.offsetWidth / 2);
-        const centerFrameRelativeIndex = Math.round(centerOfViewport / FRAME_WIDTH);
-        
-        const centerFrameIndex = activeScene.startFrame + centerFrameRelativeIndex;
-        const clampedIndex = Math.max(activeScene.startFrame, Math.min(activeScene.endFrame, centerFrameIndex));
-        if (clampedIndex !== currentFrameIndex) {
-            onFrameSelect(clampedIndex);
-        }
-      });
+      if (!scrollContainerRef.current) return;
+      const container = scrollContainerRef.current;
+      const centerOfViewport = container.scrollLeft + (container.offsetWidth / 2);
+      const centerFrameRelativeIndex = Math.round(centerOfViewport / FRAME_WIDTH);
+      
+      const centerFrameIndex = activeScene.startFrame + centerFrameRelativeIndex;
+      const clampedIndex = Math.max(activeScene.startFrame, Math.min(activeScene.endFrame, centerFrameIndex));
+      
+      // Always update frame selection immediately, even during auto-scroll
+      if (clampedIndex !== currentFrameIndex) {
+          onFrameSelect(clampedIndex);
+      }
     }
   };
   
