@@ -404,14 +404,17 @@ export function FrameFlow() {
     }
   }, [videoUrl]);
   
-  const handleFrameSelect = (index: number) => {
-    setIsPreviewLoading(true);
+  const handleFrameSelect = (index: number, source: 'click' | 'scroll' | 'initial' = 'click') => {
+    // CRITICAL: Only show loading for user clicks, not for scroll/playhead updates
+    if (source === 'click') {
+      setIsPreviewLoading(true);
+    }
     setCurrentFrameIndex(index);
   };
   
   const handleSceneSelect = (scene: Scene) => {
     setActiveScene(scene);
-    handleFrameSelect(scene.startFrame);
+    handleFrameSelect(scene.startFrame, 'initial');
   }
 
   const handleCaptureFrame = async () => {
@@ -575,7 +578,7 @@ export function FrameFlow() {
               scenes={scenes}
               activeScene={activeScene}
               currentFrameIndex={currentFrameIndex}
-              onFrameSelect={handleFrameSelect}
+              onFrameSelect={(index) => handleFrameSelect(index, 'scroll')}
               onSceneSelect={handleSceneSelect}
               getFrameDataUrl={getFrameDataUrl}
             />

@@ -152,8 +152,11 @@ export const TimelineViewer: FC<TimelineViewerProps> = ({
   const handleScroll = () => {
     if(scrollTimeoutRef.current) clearTimeout(scrollTimeoutRef.current);
     
+    // CRITICAL: User scroll takes priority - stop auto-scroll immediately
+    isAutoScrolling.current = false;
+    
     // Immediate scroll response for smooth frame selection under playhead
-    if (viewMode === 'frames' && activeScene) {
+    if (viewMode === 'frames' && activeScene && !isAutoScrolling.current) {
       if (!scrollContainerRef.current) return;
       const container = scrollContainerRef.current;
       const centerOfViewport = container.scrollLeft + (container.offsetWidth / 2);
@@ -162,7 +165,7 @@ export const TimelineViewer: FC<TimelineViewerProps> = ({
       const centerFrameIndex = activeScene.startFrame + centerFrameRelativeIndex;
       const clampedIndex = Math.max(activeScene.startFrame, Math.min(activeScene.endFrame, centerFrameIndex));
       
-      // Always update frame selection immediately, even during auto-scroll
+      // Update frame selection immediately for playhead preview
       if (clampedIndex !== currentFrameIndex) {
           onFrameSelect(clampedIndex);
       }
@@ -332,26 +335,43 @@ export const TimelineViewer: FC<TimelineViewerProps> = ({
           </>
       )}
      
-      <ScrollArea 
-        className="w-full"
-        onWheel={handleWheel}
-      >
+      {/* Custom always-visible scrollbar container */}
+      <div className="w-full">
         <div 
-          className="pt-12 pb-12" 
+          className="timeline-scroll-container pt-12 pb-4 overflow-x-auto overflow-y-hidden"
           ref={scrollContainerRef} 
           onScroll={handleScroll}
+          onWheel={handleWheel}
+          style={{
+            scrollbarWidth: 'none', /* Firefox */
+            msOverflowStyle: 'none',  /* Internet Explorer 10+ */
+          }}
         >
+          <style dangerouslySetInnerHTML={{
+            __html: `
+              .timeline-scroll-container::-webkit-scrollbar {
+                display: none; /* WebKit */
+              }
+            `
+          }} />
            {renderFrames()}
         </div>
         
-        {/* Always visible neon green scroll bar with proper spacing */}
-        <div className="mt-8 mb-4 px-1">
-          <ScrollBar 
-            orientation="horizontal" 
-            className="h-4 opacity-100 data-[state=hidden]:opacity-100 [&[data-state=hidden]]:opacity-100 bg-gray-800/30 rounded-full [&>div]:bg-green-400 [&>div]:shadow-lg [&>div]:shadow-green-400/30 [&>div]:hover:bg-green-300 [&>div]:transition-colors [&>div]:h-3 [&>div]:rounded-full"
+        {/* Always visible neon green custom scrollbar */}
+        <div className="relative h-4 mx-2 mb-4 bg-gray-800/30 rounded-full">
+          <div 
+            className="absolute top-1/2 -translate-y-1/2 h-3 bg-primary rounded-full shadow-lg shadow-primary/30 hover:bg-primary/80 transition-colors cursor-pointer"
+            style={{
+              width: viewMode === 'frames' && activeScene && scrollContainerRef.current ? 
+                `${Math.min(100, (scrollContainerRef.current.clientWidth / scrollContainerRef.current.scrollWidth) * 100)}%` : 
+                '20%',
+              left: viewMode === 'frames' && activeScene && scrollContainerRef.current ? 
+                `${Math.min(80, (scrollContainerRef.current.scrollLeft / (scrollContainerRef.current.scrollWidth - scrollContainerRef.current.clientWidth)) * 80)}%` : 
+                '0%'
+            }}
           />
         </div>
-      </ScrollArea>
+      </div>
        {viewMode === 'frames' && renderTimelineTicks()}
     </div>
   );
