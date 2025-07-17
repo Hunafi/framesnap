@@ -464,21 +464,20 @@ export const CaptureTray: FC<CaptureTrayProps> = ({ capturedFrames, onClear, onD
               <TableBody>
                 {capturedFrames.map((frame) => (
                   <TableRow key={frame.index}>
-                     <TableCell className="p-2 align-top">
-                       <div className="flex flex-col items-center gap-2">
-                         <div className="relative">
-                           <AspectRatio 
-                             ratio={videoAspectRatio} 
-                             className="w-20 cursor-pointer rounded overflow-hidden shadow-sm"
+                     <TableCell className="p-2 align-middle">
+                       <div className="flex items-center gap-3">
+                         <div className="relative flex-shrink-0">
+                           <div
+                             className="w-16 h-12 cursor-pointer rounded overflow-hidden border border-border shadow-sm bg-muted"
                              onClick={() => setSelectedFrame({ frameIndex: frame.index, dataUrl: frame.dataUrl })}
                            >
                              <img
                                src={frame.dataUrl}
                                alt={`Frame ${frame.index}`}
-                               className="w-full h-full object-cover hover:opacity-80 transition-opacity"
+                               className="w-full h-full object-cover object-center hover:opacity-80 transition-opacity"
                              />
-                           </AspectRatio>
-                           <Badge variant="secondary" className="absolute -top-1 -right-1 text-xs px-1 py-0">
+                           </div>
+                           <Badge variant="secondary" className="absolute -top-1 -right-1 text-xs px-1.5 py-0.5">
                              #{frame.index}
                            </Badge>
                          </div>
