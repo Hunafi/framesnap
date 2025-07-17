@@ -138,8 +138,11 @@ export const CaptureTray: FC<CaptureTrayProps> = ({ capturedFrames, onClear, onD
       // Add frame image (small thumbnail)
       try {
         const imgData = frame.dataUrl;
-        pdf.addImage(imgData, 'JPEG', margin, yPosition, 60, 34);
-        yPosition += 45;
+        // Dynamic sizing based on video aspect ratio
+        const imgWidth = videoAspectRatio > 1 ? 60 : 34;
+        const imgHeight = videoAspectRatio > 1 ? 34 : 60;
+        pdf.addImage(imgData, 'JPEG', margin, yPosition, imgWidth, imgHeight);
+        yPosition += Math.max(imgHeight, 45);
       } catch (error) {
         console.warn(`Could not add image for frame ${frame.index}:`, error);
       }
@@ -216,14 +219,14 @@ export const CaptureTray: FC<CaptureTrayProps> = ({ capturedFrames, onClear, onD
         children.push(
           new Paragraph({
             children: [
-              new ImageRun({
-                type: 'png',
-                data: new Uint8Array(imageBuffer),
-                transformation: {
-                  width: 300,
-                  height: 169,
-                },
-              }),
+               new ImageRun({
+                 type: 'png',
+                 data: new Uint8Array(imageBuffer),
+                 transformation: {
+                   width: videoAspectRatio > 1 ? 300 : 169,
+                   height: videoAspectRatio > 1 ? 169 : 300,
+                 },
+               }),
             ],
           })
         );
