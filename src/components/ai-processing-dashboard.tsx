@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -16,6 +16,20 @@ interface AIProcessingDashboardProps {
 export function AIProcessingDashboard({ capturedFrames, onUpdateFrame }: AIProcessingDashboardProps) {
   const { analyzeFrame, generatePrompt, retryFrame, getFrameState, batchProcessWithAutoRetry } = useDirectAIProcessor();
   const [activeTab, setActiveTab] = useState<'analyze' | 'prompt'>('analyze');
+
+  // Listen for background analysis requests
+  useEffect(() => {
+    const handleAnalyzeFrame = async (event: CustomEvent) => {
+      const { frameIndex, dataUrl } = event.detail;
+      const result = await analyzeFrame(frameIndex, dataUrl);
+      if (result) {
+        onUpdateFrame(frameIndex, { aiDescription: result });
+      }
+    };
+
+    window.addEventListener('analyzeFrame', handleAnalyzeFrame as EventListener);
+    return () => window.removeEventListener('analyzeFrame', handleAnalyzeFrame as EventListener);
+  }, [analyzeFrame, onUpdateFrame]);
 
   const handleAnalyzeFrame = async (frame: CapturedFrame) => {
     const result = await analyzeFrame(frame.index, frame.dataUrl);
@@ -109,7 +123,7 @@ export function AIProcessingDashboard({ capturedFrames, onUpdateFrame }: AIProce
                             Processing in {state.retryCountdown}s
                           </Badge>
                         )}
-                        {state.error && <Badge variant="destructive">{state.error}</Badge>}
+                        {state.error && !state.isWaitingToRetry && <Badge variant="destructive">{state.error}</Badge>}
                       </div>
                       <div className="flex items-center gap-2">
                         <Button 
@@ -156,7 +170,7 @@ export function AIProcessingDashboard({ capturedFrames, onUpdateFrame }: AIProce
                             Processing in {state.retryCountdown}s
                           </Badge>
                         )}
-                        {state.error && <Badge variant="destructive">{state.error}</Badge>}
+                        {state.error && !state.isWaitingToRetry && <Badge variant="destructive">{state.error}</Badge>}
                       </div>
                       <div className="flex items-center gap-2">
                         <Button 

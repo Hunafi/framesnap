@@ -417,7 +417,7 @@ export function FrameFlow() {
     handleFrameSelect(scene.startFrame, 'initial');
   }
 
-  const handleCaptureFrame = async () => {
+  const handleCaptureFrame = async (autoAnalyze: boolean = true) => {
     try {
       if (!getFrameDataUrl) return;
       const dataUrl = await getFrameDataUrl(currentFrameIndex, 0.9);
@@ -429,7 +429,20 @@ export function FrameFlow() {
             toast({ title: 'Frame already captured!', variant: 'destructive' });
             return prev;
         }
-        const newFrames = [...prev, { index: currentFrameIndex, dataUrl }];
+        const newFrame = { index: currentFrameIndex, dataUrl };
+        const newFrames = [...prev, newFrame];
+        
+        // Start background analysis if enabled
+        if (autoAnalyze) {
+          // Import and use the hook here would cause issues, so we'll trigger this via the component
+          setTimeout(() => {
+            const analyzeEvent = new CustomEvent('analyzeFrame', { 
+              detail: { frameIndex: currentFrameIndex, dataUrl } 
+            });
+            window.dispatchEvent(analyzeEvent);
+          }, 100);
+        }
+        
         toast({ title: `Frame ${currentFrameIndex} captured!` });
         return newFrames.sort((a,b) => a.index - b.index);
       });
