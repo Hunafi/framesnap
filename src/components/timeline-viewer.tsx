@@ -54,23 +54,21 @@ export const TimelineViewer: FC<TimelineViewerProps> = ({
   }, [viewMode, activeScene]);
 
 
-  // Pre-fetch scene thumbnails sequentially to avoid race conditions
+  // Pre-fetch scene thumbnails and first few frames sequentially
   useEffect(() => {
     let isCancelled = false;
 
     const loadSceneThumbs = async () => {
         const newCache = new Map(frameCache);
-        let updated = false;
-        // Use a sequential for-loop to prevent race conditions
+        
+        // First, load all scene start frames (highest priority)
         for (const scene of scenes) {
             if (isCancelled) return;
             if (!newCache.has(scene.startFrame)) {
                 try {
-                    const dataUrl = await getFrameDataUrl(scene.startFrame, 0.5);
+                    const dataUrl = await getFrameDataUrl(scene.startFrame, 0.6);
                     if (dataUrl && !isCancelled) {
                         newCache.set(scene.startFrame, dataUrl);
-                        updated = true;
-                        // a small re-render to show progress
                         setFrameCache(new Map(newCache));
                     }
                 } catch(e) {
@@ -78,7 +76,30 @@ export const TimelineViewer: FC<TimelineViewerProps> = ({
                 }
             }
         }
+        
+        // Then preload first 5 frames of the first scene for smoother initial experience
+        if (scenes.length > 0 && !isCancelled) {
+            const firstScene = scenes[0];
+            const framesToPreload = Math.min(5, firstScene.endFrame - firstScene.startFrame + 1);
+            
+            for (let i = 0; i < framesToPreload; i++) {
+                if (isCancelled) return;
+                const frameIndex = firstScene.startFrame + i;
+                if (!newCache.has(frameIndex)) {
+                    try {
+                        const dataUrl = await getFrameDataUrl(frameIndex, 0.5);
+                        if (dataUrl && !isCancelled) {
+                            newCache.set(frameIndex, dataUrl);
+                            setFrameCache(new Map(newCache));
+                        }
+                    } catch(e) {
+                        if (!isCancelled) console.error(`Could not preload frame ${frameIndex}`, e)
+                    }
+                }
+            }
+        }
     }
+    
     if(scenes.length > 0 && viewMode === 'scenes') {
         loadSceneThumbs();
     }
@@ -101,15 +122,24 @@ export const TimelineViewer: FC<TimelineViewerProps> = ({
     }
   }, [viewMode, activeScene, timelineFrames, visibleRange.start, visibleRange.end]);
   
-  // Initial visible range calculation
+  // Initial visible range calculation and immediate first frame loading
   useEffect(() => {
-    setFrameCache(new Map());
     if (viewMode === 'frames' && activeScene) {
-      // Initially show all frames or a reasonable range
+      // Don't clear the entire cache when switching to frame view - preserve scene thumbnails
       const totalFrames = activeScene.endFrame - activeScene.startFrame + 1;
-      setVisibleRange({ start: 0, end: Math.min(totalFrames - 1, 20) }); // Show first 20 frames initially
+      setVisibleRange({ start: 0, end: Math.min(totalFrames - 1, 15) });
+      
+      // Immediately load the first frame to prevent loading indicator
+      const firstFrame = activeScene.startFrame;
+      if (!frameCache.has(firstFrame)) {
+        getFrameDataUrl(firstFrame, 0.6).then(dataUrl => {
+          if (dataUrl) {
+            setFrameCache(prev => new Map(prev.set(firstFrame, dataUrl)));
+          }
+        }).catch(e => console.error(`Failed to load first frame ${firstFrame}:`, e));
+      }
     }
-  }, [activeScene, viewMode]);
+  }, [activeScene, viewMode, getFrameDataUrl, frameCache]);
 
   const visibleFrames = useMemo(() => {
      if (viewMode === 'frames') {

@@ -151,28 +151,128 @@ export function FrameFlow() {
 
     const detectScenes = useCallback(async (duration: number) => {
         if (!videoRef.current || !canvasRef.current) return;
+        const video = videoRef.current;
+        const canvas = canvasRef.current;
         
+        canvas.width = DOWNSAMPLE_WIDTH;
+        canvas.height = DOWNSAMPLE_HEIGHT;
+
         const totalFramesInVideo = Math.floor(duration * FPS);
+        const frameDiffs: number[] = [];
+        const histogramDiffs: number[] = [];
+
+        // Sample every 0.5 seconds for better performance
+        const frameStep = Math.floor(FPS * 0.5);
         
-        // Simple scene detection - create scenes every 5 seconds
+        // 1. Calculate frame-to-frame differences with histogram analysis
+        video.currentTime = 0;
+        await new Promise(res => setTimeout(res, 100));
+        
+        let prevFrameData = await getDownsampledFrameData(video, canvas);
+        let prevHistogram = calculateHistogram(prevFrameData);
+
+        for (let i = frameStep; i < totalFramesInVideo; i += frameStep) {
+            video.currentTime = i / FPS;
+            try {
+                const currentFrameData = await getDownsampledFrameData(video, canvas);
+                const currentHistogram = calculateHistogram(currentFrameData);
+                
+                // Calculate pixel difference
+                let pixelDiff = 0;
+                for (let j = 0; j < currentFrameData.length; j += 4) {
+                    const rDiff = Math.abs(currentFrameData[j] - prevFrameData[j]);
+                    const gDiff = Math.abs(currentFrameData[j + 1] - prevFrameData[j + 1]);
+                    const bDiff = Math.abs(currentFrameData[j + 2] - prevFrameData[j + 2]);
+                    pixelDiff += (rDiff + gDiff + bDiff) / 3;
+                }
+                
+                // Calculate histogram difference (more reliable for scene changes)
+                let histDiff = 0;
+                for (let k = 0; k < 256; k++) {
+                    histDiff += Math.abs(currentHistogram[k] - prevHistogram[k]);
+                }
+                
+                frameDiffs.push(pixelDiff);
+                histogramDiffs.push(histDiff);
+                
+                prevFrameData = currentFrameData;
+                prevHistogram = currentHistogram;
+            } catch (e) {
+                console.warn(`Could not analyze frame ${i}:`, e);
+                frameDiffs.push(0);
+                histogramDiffs.push(0);
+            }
+        }
+
+        // 2. Detect scene boundaries using adaptive thresholding
+        const sceneCuts: number[] = [0];
+        const windowSize = Math.max(3, Math.floor(FPS / frameStep)); // ~1 second window
+        
+        for (let i = windowSize; i < histogramDiffs.length - windowSize; i++) {
+            const window = histogramDiffs.slice(i - windowSize, i + windowSize);
+            const mean = window.reduce((a, b) => a + b, 0) / window.length;
+            const stdDev = Math.sqrt(window.map(x => Math.pow(x - mean, 2)).reduce((a, b) => a + b) / window.length);
+            
+            // Adaptive threshold based on local statistics
+            const threshold = mean + stdDev * 2.5;
+            const minThreshold = 50000; // Absolute minimum for scene change
+            
+            if (histogramDiffs[i] > Math.max(threshold, minThreshold)) {
+                const frameIndex = i * frameStep;
+                const lastCut = sceneCuts[sceneCuts.length - 1] ?? 0;
+                const minSceneDuration = FPS * 2; // Minimum 2 seconds per scene
+                
+                if (frameIndex - lastCut > minSceneDuration) {
+                    sceneCuts.push(frameIndex);
+                    // Skip ahead to avoid multiple detections for same transition
+                    i += Math.floor(windowSize / 2);
+                }
+            }
+        }
+        
+        // 3. Create Scene objects with refined boundaries
         const newScenes: Scene[] = [];
-        const sceneLength = FPS * 5; // 5 seconds per scene
-        
-        for (let i = 0; i < totalFramesInVideo; i += sceneLength) {
-            const start = i;
-            const end = Math.min(i + sceneLength - 1, totalFramesInVideo - 1);
+        for (let i = 0; i < sceneCuts.length; i++) {
+            const start = sceneCuts[i];
+            const end = (i === sceneCuts.length - 1) ? totalFramesInVideo - 1 : sceneCuts[i + 1] - 1;
             
             if (end > start) {
                 newScenes.push({ startFrame: start, endFrame: end });
             }
         }
         
+        // Ensure we have at least one scene
+        if (newScenes.length === 0) {
+            newScenes.push({ startFrame: 0, endFrame: totalFramesInVideo - 1 });
+        }
+        
+        // Reset video position
+        video.currentTime = 0;
+
         setScenes(newScenes);
         setActiveScene(newScenes[0] ?? null);
         setCurrentFrameIndex(newScenes[0]?.startFrame ?? 0);
         setAppState('ready');
 
-    }, []);
+    }, [getDownsampledFrameData]);
+
+    // Helper function to calculate color histogram
+    const calculateHistogram = (imageData: Uint8ClampedArray): number[] => {
+        const histogram = new Array(256).fill(0);
+        
+        // Calculate luminance histogram for better scene detection
+        for (let i = 0; i < imageData.length; i += 4) {
+            const r = imageData[i];
+            const g = imageData[i + 1];
+            const b = imageData[i + 2];
+            
+            // Convert to luminance (grayscale)
+            const luminance = Math.floor(0.299 * r + 0.587 * g + 0.114 * b);
+            histogram[luminance]++;
+        }
+        
+        return histogram;
+    };
 
 
   const handleLoadedMetadata = useCallback(async () => {
