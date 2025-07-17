@@ -54,70 +54,56 @@ export const TimelineViewer: FC<TimelineViewerProps> = ({
   }, [viewMode, activeScene]);
 
 
-  // Level 4 Implementation: Simple and immediate frame loading
+  // Level 4 Simple Frame Loading - No complex batching, immediate load
   useEffect(() => {
     let isCancelled = false;
 
     const loadFrames = async () => {
         if (viewMode === 'scenes') {
-            // Load scene thumbnails - immediate sequential loading
+            // Load scene thumbnails one by one for stability
             for (const scene of scenes) {
                 if (isCancelled) return;
                 if (!frameCache.has(scene.startFrame)) {
                     try {
                         const dataUrl = await getFrameDataUrl(scene.startFrame, 0.6);
                         if (dataUrl && !isCancelled) {
-                            setFrameCache(prev => new Map(prev.set(scene.startFrame, dataUrl)));
+                            setFrameCache(prev => new Map(prev).set(scene.startFrame, dataUrl));
                         }
                     } catch(e) {
-                        if (!isCancelled) console.error(`Failed to load scene ${scene.startFrame}:`, e);
+                        console.warn(`Scene ${scene.startFrame} load failed:`, e);
                     }
                 }
             }
         } else if (viewMode === 'frames' && activeScene) {
-            // Load frame thumbnails - start from current position, expand outward
-            const centerFrame = currentFrameIndex;
-            const sceneStart = activeScene.startFrame;
-            const sceneEnd = activeScene.endFrame;
+            // Simple sequential loading starting from current frame
+            const startFrame = activeScene.startFrame;
+            const endFrame = activeScene.endFrame;
             
-            // Load current frame first
-            if (!frameCache.has(centerFrame)) {
+            // Load current frame immediately
+            if (!frameCache.has(currentFrameIndex)) {
                 try {
-                    const dataUrl = await getFrameDataUrl(centerFrame, 0.5);
+                    const dataUrl = await getFrameDataUrl(currentFrameIndex, 0.5);
                     if (dataUrl && !isCancelled) {
-                        setFrameCache(prev => new Map(prev.set(centerFrame, dataUrl)));
+                        setFrameCache(prev => new Map(prev).set(currentFrameIndex, dataUrl));
                     }
                 } catch(e) {
-                    if (!isCancelled) console.error(`Failed to load frame ${centerFrame}:`, e);
+                    console.warn(`Frame ${currentFrameIndex} load failed:`, e);
                 }
             }
             
-            // Then load surrounding frames
-            for (let distance = 1; distance <= 10; distance++) {
+            // Load 5 frames before and after current frame
+            const loadRange = 5;
+            for (let i = Math.max(startFrame, currentFrameIndex - loadRange); 
+                 i <= Math.min(endFrame, currentFrameIndex + loadRange); i++) {
                 if (isCancelled) return;
-                
-                const leftFrame = centerFrame - distance;
-                const rightFrame = centerFrame + distance;
-                
-                if (leftFrame >= sceneStart && !frameCache.has(leftFrame)) {
+                if (i !== currentFrameIndex && !frameCache.has(i)) {
                     try {
-                        const dataUrl = await getFrameDataUrl(leftFrame, 0.5);
+                        const dataUrl = await getFrameDataUrl(i, 0.5);
                         if (dataUrl && !isCancelled) {
-                            setFrameCache(prev => new Map(prev.set(leftFrame, dataUrl)));
+                            setFrameCache(prev => new Map(prev).set(i, dataUrl));
                         }
                     } catch(e) {
-                        if (!isCancelled) console.error(`Failed to load frame ${leftFrame}:`, e);
-                    }
-                }
-                
-                if (rightFrame <= sceneEnd && !frameCache.has(rightFrame)) {
-                    try {
-                        const dataUrl = await getFrameDataUrl(rightFrame, 0.5);
-                        if (dataUrl && !isCancelled) {
-                            setFrameCache(prev => new Map(prev.set(rightFrame, dataUrl)));
-                        }
-                    } catch(e) {
-                        if (!isCancelled) console.error(`Failed to load frame ${rightFrame}:`, e);
+                        console.warn(`Frame ${i} load failed:`, e);
                     }
                 }
             }
@@ -126,111 +112,15 @@ export const TimelineViewer: FC<TimelineViewerProps> = ({
     
     loadFrames();
     return () => { isCancelled = true; };
-  }, [scenes, viewMode, activeScene, currentFrameIndex, getFrameDataUrl]);
+  }, [scenes, viewMode, activeScene, currentFrameIndex]);
 
-  const updateVisibleRange = useCallback(() => {
-    if (!scrollContainerRef.current || viewMode !== 'frames' || !activeScene) return;
-
-    const { scrollLeft, clientWidth } = scrollContainerRef.current;
-    const startIndex = Math.max(0, Math.floor(scrollLeft / FRAME_WIDTH) - VISIBLE_FRAME_BUFFER);
-    const endIndex = Math.min(
-      timelineFrames.length - 1,
-      Math.ceil((scrollLeft + clientWidth) / FRAME_WIDTH) + VISIBLE_FRAME_BUFFER
-    );
+  // Level 4 Simplified: Remove complex visible range calculations that cause blanking
+  const renderVisibleFrames = useMemo(() => {
+    if (viewMode !== 'frames' || !activeScene) return [];
     
-    setVisibleRange(prev => {
-      // Only update if there's a meaningful change to prevent constant re-renders
-      if (Math.abs(startIndex - prev.start) > 2 || Math.abs(endIndex - prev.end) > 2) {
-        return { start: startIndex, end: endIndex };
-      }
-      return prev;
-    });
+    // Show all frames in the scene, let browser handle rendering optimization
+    return timelineFrames;
   }, [viewMode, activeScene, timelineFrames]);
-  
-  // Initial visible range calculation and immediate first frame loading
-  useEffect(() => {
-    if (viewMode === 'frames' && activeScene) {
-      // Don't clear the entire cache when switching to frame view - preserve scene thumbnails
-      const totalFrames = activeScene.endFrame - activeScene.startFrame + 1;
-      setVisibleRange({ start: 0, end: Math.min(totalFrames - 1, 15) });
-      
-      // Immediately load the first frame to prevent loading indicator
-      const firstFrame = activeScene.startFrame;
-      if (!frameCache.has(firstFrame)) {
-        getFrameDataUrl(firstFrame, 0.6).then(dataUrl => {
-          if (dataUrl) {
-            setFrameCache(prev => new Map(prev.set(firstFrame, dataUrl)));
-          }
-        }).catch(e => console.error(`Failed to load first frame ${firstFrame}:`, e));
-      }
-    }
-  }, [activeScene, viewMode, getFrameDataUrl, frameCache]);
-
-  const visibleFrames = useMemo(() => {
-     if (viewMode === 'frames') {
-        return timelineFrames.slice(visibleRange.start, visibleRange.end + 1);
-     }
-     return [];
-  }, [viewMode, timelineFrames, visibleRange]);
-  
-  // Pre-fetch individual frame thumbnails when in frame view with better stability
-  useEffect(() => {
-    let isCancelled = false;
-    
-    const loadVisibleFrames = async () => {
-      if (visibleFrames.length === 0) return;
-      
-      // Create a stable copy of current cache to avoid race conditions
-      const currentCache = new Map(frameCache);
-      const framesToLoad = visibleFrames.filter(frameIndex => !currentCache.has(frameIndex));
-      
-      if (framesToLoad.length === 0) return;
-
-      // Load frames in small batches to prevent overwhelming
-      const batchSize = 3;
-      for (let i = 0; i < framesToLoad.length; i += batchSize) {
-        if (isCancelled) return;
-        
-        const batch = framesToLoad.slice(i, i + batchSize);
-        const batchPromises = batch.map(async (frameIndex) => {
-          if (isCancelled) return null;
-          
-          try {
-            const dataUrl = await getFrameDataUrl(frameIndex, 0.5);
-            if (dataUrl && !isCancelled) {
-              return { frameIndex, dataUrl };
-            }
-          } catch(e) {
-            if (!isCancelled) console.error(`Could not fetch thumbnail for frame ${frameIndex}`, e);
-          }
-          return null;
-        });
-        
-        const results = await Promise.allSettled(batchPromises);
-        
-        if (!isCancelled) {
-          setFrameCache(prev => {
-            const newCache = new Map(prev);
-            results.forEach(result => {
-              if (result.status === 'fulfilled' && result.value) {
-                newCache.set(result.value.frameIndex, result.value.dataUrl);
-              }
-            });
-            return newCache;
-          });
-        }
-        
-        // Small delay between batches to prevent blocking
-        await new Promise(resolve => setTimeout(resolve, 50));
-      }
-    };
-
-    if (visibleFrames.length > 0 && viewMode === 'frames') {
-      loadVisibleFrames();
-    }
-
-    return () => { isCancelled = true; }
-  }, [visibleFrames, getFrameDataUrl, viewMode]); // Removed frameCache dependency to prevent unnecessary re-runs
 
 
   useEffect(() => {
@@ -240,17 +130,15 @@ export const TimelineViewer: FC<TimelineViewerProps> = ({
       const targetScrollLeft = (relativeIndex * FRAME_WIDTH) - (container.offsetWidth / 2) + (FRAME_WIDTH / 2);
       
       isAutoScrolling.current = true;
-      
       container.scrollTo({ left: targetScrollLeft, behavior: 'smooth' });
       
       const timer = setTimeout(() => { 
         isAutoScrolling.current = false;
-        updateVisibleRange();
-      }, 500); // Wait for smooth scroll to finish
+      }, 500);
       
       return () => clearTimeout(timer);
     }
-  }, [currentFrameIndex, viewMode, activeScene, updateVisibleRange]);
+  }, [currentFrameIndex, viewMode, activeScene]);
 
   const handleScroll = () => {
     if(scrollTimeoutRef.current) clearTimeout(scrollTimeoutRef.current);
@@ -269,10 +157,6 @@ export const TimelineViewer: FC<TimelineViewerProps> = ({
         }
       });
     }
-
-    scrollTimeoutRef.current = setTimeout(() => {
-      updateVisibleRange();
-    }, 150);
   };
   
   const handleWheel = (e: WheelEvent<HTMLDivElement>) => {
@@ -285,7 +169,6 @@ export const TimelineViewer: FC<TimelineViewerProps> = ({
 
   const handleSceneClick = (scene: Scene) => {
     onSceneSelect(scene);
-    setVisibleRange({start: 0, end: 0}); // Reset visible range
     setViewMode('frames');
   };
 
@@ -362,8 +245,7 @@ export const TimelineViewer: FC<TimelineViewerProps> = ({
     if(viewMode === 'frames' && activeScene) {
       return (
         <div className="relative h-[110px]" style={{ width: `${timelineFrames.length * FRAME_WIDTH}px` }}>
-          {timelineFrames.map((frameIndex, i) => {
-              const isVisible = i >= visibleRange.start && i <= visibleRange.end;
+          {renderVisibleFrames.map((frameIndex, i) => {
               const dataUrl = frameCache.get(frameIndex);
               
               return (
@@ -374,8 +256,7 @@ export const TimelineViewer: FC<TimelineViewerProps> = ({
                   onClick={() => onFrameSelect(frameIndex)}
                 >
                    <div className="flex h-[90px] w-[128px] cursor-pointer flex-col items-center justify-center">
-                     {isVisible ? (
-                       dataUrl ? (
+                     {dataUrl ? (
                        <img
                            src={dataUrl}
                            alt={`Frame ${frameIndex}`}
@@ -387,11 +268,8 @@ export const TimelineViewer: FC<TimelineViewerProps> = ({
                            )}
                            data-ai-hint="video frame"
                        />
-                       ) : (
-                       <Skeleton className="h-[72px] w-[128px] rounded-md" />
-                       )
                      ) : (
-                        <div className="h-[72px] w-[128px] rounded-md bg-transparent" />
+                       <Skeleton className="h-[72px] w-[128px] rounded-md" />
                      )}
                   </div>
                 </div>

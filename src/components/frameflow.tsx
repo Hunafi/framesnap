@@ -474,30 +474,29 @@ export function FrameFlow() {
     setDialogState('none');
   }
   
+  // Level 4 Simplified Preview Loading - Remove loading delays
   useEffect(() => {
-    if (appState !== 'ready' || !getFrameDataUrl) return;
+    if (appState !== 'ready') return;
 
     let isCancelled = false;
+    setIsPreviewLoading(true);
     
     getFrameDataUrl(currentFrameIndex, 0.8)
       .then(url => {
         if (!isCancelled && url) {
           setPreviewFrameUrl(url);
+          setIsPreviewLoading(false);
         }
       })
       .catch((err) => {
         if (!isCancelled) {
           console.error("Preview error", err);
-        }
-      })
-      .finally(() => {
-        if (!isCancelled) {
           setIsPreviewLoading(false);
         }
       });
     
     return () => { isCancelled = true; };
-  }, [currentFrameIndex, appState, getFrameDataUrl]);
+  }, [currentFrameIndex, appState]);
 
 
   const renderContent = () => {
