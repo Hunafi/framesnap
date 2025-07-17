@@ -149,11 +149,20 @@ export const TimelineViewer: FC<TimelineViewerProps> = ({
     if (isDraggingScrollbar || viewMode !== 'frames' || !activeScene || !scrollContainerRef.current) return;
     
     const container = scrollContainerRef.current;
-    const centerOfViewport = container.scrollLeft + (container.offsetWidth / 2);
-    const centerFrameRelativeIndex = Math.round(centerOfViewport / FRAME_WIDTH);
     
-    const centerFrameIndex = activeScene.startFrame + centerFrameRelativeIndex;
-    const clampedIndex = Math.max(activeScene.startFrame, Math.min(activeScene.endFrame, centerFrameIndex));
+    // PRECISION FIX: Use exact playhead position (fixed at 50% of viewport)
+    const playheadPosition = container.scrollLeft + (container.offsetWidth / 2);
+    
+    // PRECISION FIX: More accurate frame calculation considering frame overlap
+    const exactFramePosition = playheadPosition / FRAME_WIDTH;
+    const frameRelativeIndex = Math.floor(exactFramePosition);
+    
+    // PRECISION FIX: Check which frame the playhead overlaps most
+    const frameOverlap = exactFramePosition - frameRelativeIndex;
+    const selectedFrameRelativeIndex = frameOverlap >= 0.5 ? frameRelativeIndex + 1 : frameRelativeIndex;
+    
+    const selectedFrameIndex = activeScene.startFrame + selectedFrameRelativeIndex;
+    const clampedIndex = Math.max(activeScene.startFrame, Math.min(activeScene.endFrame, selectedFrameIndex));
     
     // Update frame selection for scroll-based navigation
     if (clampedIndex !== currentFrameIndex) {
@@ -203,12 +212,15 @@ export const TimelineViewer: FC<TimelineViewerProps> = ({
 
     const handleMouseUp = () => {
       if (isDraggingScrollbar && viewMode === 'frames' && activeScene && scrollContainerRef.current) {
-        // Update frame selection when drag ends
+        // PRECISION FIX: Use same precise calculation as handleScroll
         const container = scrollContainerRef.current;
-        const centerOfViewport = container.scrollLeft + (container.offsetWidth / 2);
-        const centerFrameRelativeIndex = Math.round(centerOfViewport / FRAME_WIDTH);
-        const centerFrameIndex = activeScene.startFrame + centerFrameRelativeIndex;
-        const clampedIndex = Math.max(activeScene.startFrame, Math.min(activeScene.endFrame, centerFrameIndex));
+        const playheadPosition = container.scrollLeft + (container.offsetWidth / 2);
+        const exactFramePosition = playheadPosition / FRAME_WIDTH;
+        const frameRelativeIndex = Math.floor(exactFramePosition);
+        const frameOverlap = exactFramePosition - frameRelativeIndex;
+        const selectedFrameRelativeIndex = frameOverlap >= 0.5 ? frameRelativeIndex + 1 : frameRelativeIndex;
+        const selectedFrameIndex = activeScene.startFrame + selectedFrameRelativeIndex;
+        const clampedIndex = Math.max(activeScene.startFrame, Math.min(activeScene.endFrame, selectedFrameIndex));
         
         if (clampedIndex !== currentFrameIndex) {
           onFrameSelect(clampedIndex);
@@ -321,7 +333,7 @@ export const TimelineViewer: FC<TimelineViewerProps> = ({
                     scrollToFrame(frameIndex, 'click');
                   }}
                 >
-                   <div className="flex h-[90px] w-[128px] cursor-pointer flex-col items-center justify-center">
+                   <div className="flex h-[90px] w-[128px] cursor-pointer flex-col items-center justify-center relative">
                      {dataUrl ? (
                        <img
                            src={dataUrl}
@@ -337,6 +349,10 @@ export const TimelineViewer: FC<TimelineViewerProps> = ({
                      ) : (
                        <Skeleton className="h-[72px] w-[128px] rounded-md" />
                      )}
+                     {/* DEBUG: Temporary frame index labels for alignment verification */}
+                     <div className="absolute bottom-0 left-0 bg-black/70 text-white text-xs px-1 rounded-tr">
+                       {frameIndex}
+                     </div>
                   </div>
                 </div>
               );
