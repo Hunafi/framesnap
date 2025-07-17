@@ -7,13 +7,14 @@ import { Link } from 'react-router-dom';
 export default function Home() {
   const { user, profile, loading, signOut } = useAuth();
 
-  if (loading) {
-    return (
-      <div className="flex min-h-screen items-center justify-center">
-        <Loader2 className="h-8 w-8 animate-spin" />
-      </div>
-    );
-  }
+  // Temporarily bypass loading state to test the main app
+  // if (loading) {
+  //   return (
+  //     <div className="flex min-h-screen items-center justify-center">
+  //       <Loader2 className="h-8 w-8 animate-spin" />
+  //     </div>
+  //   );
+  // }
 
   return (
     <div className="flex min-h-screen w-full flex-col bg-background text-foreground">
