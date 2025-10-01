@@ -11,10 +11,18 @@ export interface Profile {
   updated_at: string;
 }
 
+export interface UserRole {
+  id: string;
+  user_id: string;
+  role: 'admin' | 'user';
+  created_at: string;
+}
+
 export function useAuth() {
   const [user, setUser] = useState<User | null>(null);
   const [session, setSession] = useState<Session | null>(null);
   const [profile, setProfile] = useState<Profile | null>(null);
+  const [userRoles, setUserRoles] = useState<UserRole[]>([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -25,25 +33,39 @@ export function useAuth() {
         setUser(session?.user ?? null);
         
         if (session?.user) {
-          // Defer profile fetch to avoid deadlock
+          // Defer profile and roles fetch to avoid deadlock
           setTimeout(() => {
-            supabase
-              .from('profiles')
-              .select('*')
-              .eq('user_id', session.user.id)
-              .maybeSingle()
-              .then(({ data: profileData, error }) => {
-                if (error) {
-                  console.error('Error fetching profile:', error);
-                  setProfile(null);
-                } else {
-                  setProfile(profileData);
-                }
-                setLoading(false);
-              });
+            Promise.all([
+              supabase
+                .from('profiles')
+                .select('*')
+                .eq('user_id', session.user.id)
+                .maybeSingle(),
+              supabase
+                .from('user_roles')
+                .select('*')
+                .eq('user_id', session.user.id)
+            ]).then(([profileResult, rolesResult]) => {
+              if (profileResult.error) {
+                console.error('Error fetching profile:', profileResult.error);
+                setProfile(null);
+              } else {
+                setProfile(profileResult.data);
+              }
+              
+              if (rolesResult.error) {
+                console.error('Error fetching roles:', rolesResult.error);
+                setUserRoles([]);
+              } else {
+                setUserRoles(rolesResult.data || []);
+              }
+              
+              setLoading(false);
+            });
           }, 0);
         } else {
           setProfile(null);
+          setUserRoles([]);
           setLoading(false);
         }
       }
@@ -55,21 +77,34 @@ export function useAuth() {
       setUser(session?.user ?? null);
       
       if (session?.user) {
-        // Fetch user profile
-        supabase
-          .from('profiles')
-          .select('*')
-          .eq('user_id', session.user.id)
-          .maybeSingle()
-          .then(({ data: profileData, error }) => {
-            if (error) {
-              console.error('Error fetching profile:', error);
-              setProfile(null);
-            } else {
-              setProfile(profileData);
-            }
-            setLoading(false);
-          });
+        // Fetch user profile and roles
+        Promise.all([
+          supabase
+            .from('profiles')
+            .select('*')
+            .eq('user_id', session.user.id)
+            .maybeSingle(),
+          supabase
+            .from('user_roles')
+            .select('*')
+            .eq('user_id', session.user.id)
+        ]).then(([profileResult, rolesResult]) => {
+          if (profileResult.error) {
+            console.error('Error fetching profile:', profileResult.error);
+            setProfile(null);
+          } else {
+            setProfile(profileResult.data);
+          }
+          
+          if (rolesResult.error) {
+            console.error('Error fetching roles:', rolesResult.error);
+            setUserRoles([]);
+          } else {
+            setUserRoles(rolesResult.data || []);
+          }
+          
+          setLoading(false);
+        });
       } else {
         setLoading(false);
       }
@@ -108,10 +143,11 @@ export function useAuth() {
     user,
     session,
     profile,
+    userRoles,
     loading,
     signUp,
     signIn,
     signOut,
-    isAdmin: profile?.is_admin ?? false,
+    isAdmin: userRoles.some(role => role.role === 'admin') || profile?.is_admin || false,
   };
 }

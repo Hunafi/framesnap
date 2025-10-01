@@ -9,6 +9,8 @@ import { useToast } from '@/hooks/use-toast';
 import { Navigate, useNavigate } from 'react-router-dom';
 import { Target, Loader2, Save, AlertTriangle, ArrowLeft } from 'lucide-react';
 import { CopyableTextarea } from '@/components/copyable-textarea';
+import { UserManagement } from '@/components/user-management';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 
 export default function Admin() {
   const { user, profile, loading: authLoading, signOut } = useAuth();
@@ -19,8 +21,10 @@ export default function Admin() {
   const { toast } = useToast();
   const navigate = useNavigate();
 
+  const { isAdmin } = useAuth();
+
   // Redirect if not authenticated or not admin
-  if (!authLoading && (!user || !profile?.is_admin)) {
+  if (!authLoading && (!user || !isAdmin)) {
     return <Navigate to="/auth" replace />;
   }
 
@@ -104,7 +108,7 @@ export default function Admin() {
       </header>
       
       <div className="flex flex-1 flex-col p-6">
-        <div className="mx-auto w-full max-w-4xl space-y-6">
+        <div className="mx-auto w-full max-w-6xl space-y-6">
           <Alert>
             <AlertTriangle className="h-4 w-4" />
             <AlertDescription>
@@ -112,50 +116,63 @@ export default function Admin() {
             </AlertDescription>
           </Alert>
 
-          <div className="grid gap-6 md:grid-cols-2">
-            <Card>
-              <CardHeader>
-                <CardTitle>Frame Analysis Prompt</CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                <div className="space-y-2">
-                  <Label htmlFor="analyze-prompt">
-                    Custom instruction for analyzing video frames
-                  </Label>
-                  <CopyableTextarea
-                    value={analyzePrompt}
-                    onChange={setAnalyzePrompt}
-                    placeholder="Enter custom instruction for frame analysis..."
-                  />
-                </div>
-              </CardContent>
-            </Card>
+          <Tabs defaultValue="settings" className="w-full">
+            <TabsList className="grid w-full grid-cols-2">
+              <TabsTrigger value="settings">AI Settings</TabsTrigger>
+              <TabsTrigger value="users">User Management</TabsTrigger>
+            </TabsList>
 
-            <Card>
-              <CardHeader>
-                <CardTitle>Image Generation Prompt</CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                <div className="space-y-2">
-                  <Label htmlFor="generate-prompt">
-                    Default instruction for generating AI prompts
-                  </Label>
-                  <CopyableTextarea
-                    value={generatePrompt}
-                    onChange={setGeneratePrompt}
-                    placeholder="Enter default instruction for prompt generation..."
-                  />
-                </div>
-              </CardContent>
-            </Card>
-          </div>
+            <TabsContent value="settings" className="space-y-6">
+              <div className="grid gap-6 md:grid-cols-2">
+                <Card>
+                  <CardHeader>
+                    <CardTitle>Frame Analysis Prompt</CardTitle>
+                  </CardHeader>
+                  <CardContent className="space-y-4">
+                    <div className="space-y-2">
+                      <Label htmlFor="analyze-prompt">
+                        Custom instruction for analyzing video frames
+                      </Label>
+                      <CopyableTextarea
+                        value={analyzePrompt}
+                        onChange={setAnalyzePrompt}
+                        placeholder="Enter custom instruction for frame analysis..."
+                      />
+                    </div>
+                  </CardContent>
+                </Card>
 
-          <div className="flex justify-center">
-            <Button onClick={handleSave} disabled={saving} size="lg">
-              {saving ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Save className="mr-2 h-4 w-4" />}
-              Save Settings
-            </Button>
-          </div>
+                <Card>
+                  <CardHeader>
+                    <CardTitle>Image Generation Prompt</CardTitle>
+                  </CardHeader>
+                  <CardContent className="space-y-4">
+                    <div className="space-y-2">
+                      <Label htmlFor="generate-prompt">
+                        Default instruction for generating AI prompts
+                      </Label>
+                      <CopyableTextarea
+                        value={generatePrompt}
+                        onChange={setGeneratePrompt}
+                        placeholder="Enter default instruction for prompt generation..."
+                      />
+                    </div>
+                  </CardContent>
+                </Card>
+              </div>
+
+              <div className="flex justify-center">
+                <Button onClick={handleSave} disabled={saving} size="lg">
+                  {saving ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Save className="mr-2 h-4 w-4" />}
+                  Save Settings
+                </Button>
+              </div>
+            </TabsContent>
+
+            <TabsContent value="users" className="space-y-6">
+              <UserManagement />
+            </TabsContent>
+          </Tabs>
         </div>
       </div>
     </div>
