@@ -14,6 +14,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { Badge } from '@/components/ui/badge';
 import { useToast } from '@/hooks/use-toast';
 import { useSmartAIProcessor } from '@/hooks/use-smart-ai-processor';
+import { supabase } from '@/integrations/supabase/client';
 
 import { CopyableTextarea } from './copyable-textarea';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from './ui/dialog';
@@ -84,16 +85,21 @@ export const CaptureTray: FC<CaptureTrayProps> = ({ capturedFrames, onClear, onD
       let descriptionHeight = 0;
       if (frame.aiDescription) {
         const descLines = pdf.splitTextToSize(frame.aiDescription, 170);
-        descriptionHeight = 10 + (descLines.length * 4) + 8; // Header + lines + padding
+        descriptionHeight = 10 + (descLines.length * 4) + 8;
       }
       
       let promptHeight = 0;
       if (frame.aiPrompt) {
         const promptLines = pdf.splitTextToSize(frame.aiPrompt, 170);
-        promptHeight = 10 + (promptLines.length * 4) + 8; // Header + lines + padding
+        promptHeight = 10 + (promptLines.length * 4) + 8;
       }
       
-      const totalContentHeight = frameHeaderHeight + imageHeight + descriptionHeight + promptHeight + 15;
+      let generatedImageHeight = 0;
+      if (frame.generatedImageUrl) {
+        generatedImageHeight = imageHeight + 10; // Same height as original + header
+      }
+      
+      const totalContentHeight = frameHeaderHeight + imageHeight + descriptionHeight + promptHeight + generatedImageHeight + 15;
       
       // Check if we need a new page for this frame
       checkPageSpace(totalContentHeight);
@@ -103,7 +109,7 @@ export const CaptureTray: FC<CaptureTrayProps> = ({ capturedFrames, onClear, onD
       pdf.text(`Frame ${frame.index}`, margin, yPosition);
       yPosition += frameHeaderHeight;
       
-      // Add image
+      // Add original image
       try {
         pdf.addImage(frame.dataUrl, 'JPEG', margin, yPosition, imgWidth, imgHeight);
       } catch (error) {
@@ -113,7 +119,6 @@ export const CaptureTray: FC<CaptureTrayProps> = ({ capturedFrames, onClear, onD
       
       // AI Description
       if (frame.aiDescription) {
-        // Check if description section fits
         checkPageSpace(descriptionHeight);
         
         pdf.setFontSize(10);
@@ -129,7 +134,6 @@ export const CaptureTray: FC<CaptureTrayProps> = ({ capturedFrames, onClear, onD
       
       // AI Prompt
       if (frame.aiPrompt) {
-        // Check if prompt section fits
         checkPageSpace(promptHeight);
         
         pdf.setFontSize(10);
@@ -141,6 +145,23 @@ export const CaptureTray: FC<CaptureTrayProps> = ({ capturedFrames, onClear, onD
         const promptLines = pdf.splitTextToSize(frame.aiPrompt, 170);
         pdf.text(promptLines, margin, yPosition);
         yPosition += promptLines.length * 4 + 8;
+      }
+      
+      // Generated Image
+      if (frame.generatedImageUrl) {
+        checkPageSpace(generatedImageHeight);
+        
+        pdf.setFontSize(10);
+        pdf.setFont(undefined, 'bold');
+        pdf.text('AI Generated Image:', margin, yPosition);
+        yPosition += 6;
+        
+        try {
+          pdf.addImage(frame.generatedImageUrl, 'JPEG', margin, yPosition, imgWidth, imgHeight);
+        } catch (error) {
+          console.error('Failed to add generated image to PDF:', error);
+        }
+        yPosition += imgHeight + 8;
       }
       
       yPosition += 15; // Extra spacing between frames
@@ -237,6 +258,40 @@ export const CaptureTray: FC<CaptureTrayProps> = ({ capturedFrames, onClear, onD
         );
       }
       
+      // Generated Image
+      if (frame.generatedImageUrl) {
+        children.push(
+          new Paragraph({
+            children: [
+              new TextRun({
+                text: 'AI Generated Image:',
+                bold: true,
+              }),
+            ],
+          })
+        );
+        
+        try {
+          const base64Data = getBase64FromDataUrl(frame.generatedImageUrl);
+          children.push(
+            new Paragraph({
+              children: [
+                new ImageRun({
+                  data: Buffer.from(base64Data, 'base64'),
+                  transformation: {
+                    width: imgWidth,
+                    height: imgHeight,
+                  },
+                  type: 'jpg',
+                }),
+              ],
+            })
+          );
+        } catch (error) {
+          console.error('Failed to add generated image to DOCX:', error);
+        }
+      }
+      
       // Add spacing
       children.push(new Paragraph({ text: '' }));
     }
@@ -264,20 +319,34 @@ export const CaptureTray: FC<CaptureTrayProps> = ({ capturedFrames, onClear, onD
   const generateZIP = async () => {
     const zip = new JSZip();
     
-    // Add images
+    // Add original images
     for (const frame of capturedFrames) {
       const response = await fetch(frame.dataUrl);
       const blob = await response.blob();
       zip.file(`frame_${frame.index}.jpg`, blob, { binary: true });
     }
     
+    // Add generated images
+    for (const frame of capturedFrames) {
+      if (frame.generatedImageUrl) {
+        try {
+          const response = await fetch(frame.generatedImageUrl);
+          const blob = await response.blob();
+          zip.file(`frame_${frame.index}_generated.jpg`, blob, { binary: true });
+        } catch (error) {
+          console.error(`Failed to add generated image for frame ${frame.index}:`, error);
+        }
+      }
+    }
+    
     // Create CSV with AI data
     const csvData = [
-      ['Frame Index', 'AI Description', 'AI Prompt'],
+      ['Frame Index', 'AI Description', 'AI Prompt', 'Has Generated Image'],
       ...capturedFrames.map(frame => [
         frame.index.toString(),
         frame.aiDescription || '',
-        frame.aiPrompt || ''
+        frame.aiPrompt || '',
+        frame.generatedImageUrl ? 'Yes' : 'No'
       ])
     ];
     
@@ -292,11 +361,13 @@ export const CaptureTray: FC<CaptureTrayProps> = ({ capturedFrames, onClear, onD
       exportDate: new Date().toISOString(),
       totalFrames: capturedFrames.length,
       framesWithAI: capturedFrames.filter(f => f.aiDescription || f.aiPrompt).length,
+      framesWithGeneratedImages: capturedFrames.filter(f => f.generatedImageUrl).length,
       videoAspectRatio,
       frames: capturedFrames.map(frame => ({
         index: frame.index,
         hasAIDescription: !!frame.aiDescription,
         hasAIPrompt: !!frame.aiPrompt,
+        hasGeneratedImage: !!frame.generatedImageUrl,
         aiDescription: frame.aiDescription,
         aiPrompt: frame.aiPrompt
       }))
@@ -376,6 +447,70 @@ export const CaptureTray: FC<CaptureTrayProps> = ({ capturedFrames, onClear, onD
       toast({
         title: 'Download Failed',
         description: 'Could not download the frame. Please try again.',
+        variant: 'destructive',
+      });
+    }
+  };
+
+  const handleGenerateImage = async (frameIndex: number, prompt: string) => {
+    if (!prompt) {
+      toast({
+        title: 'No prompt available',
+        description: 'Generate an AI prompt first.',
+        variant: 'destructive',
+      });
+      return;
+    }
+
+    onUpdateFrame(frameIndex, { isGeneratingImage: true });
+
+    try {
+      const { data, error } = await supabase.functions.invoke('generate-image', {
+        body: { prompt }
+      });
+
+      if (error) throw error;
+
+      if (data?.imageUrl) {
+        onUpdateFrame(frameIndex, { 
+          generatedImageUrl: data.imageUrl,
+          isGeneratingImage: false 
+        });
+        toast({ title: 'Image generated successfully!' });
+      } else {
+        throw new Error('No image URL returned');
+      }
+    } catch (error) {
+      console.error('Image generation error:', error);
+      onUpdateFrame(frameIndex, { isGeneratingImage: false });
+      toast({
+        title: 'Image Generation Failed',
+        description: error instanceof Error ? error.message : 'Could not generate image. Please try again.',
+        variant: 'destructive',
+      });
+    }
+  };
+
+  const handleDownloadGeneratedImage = async (frame: CapturedFrame) => {
+    if (!frame.generatedImageUrl) return;
+
+    try {
+      const response = await fetch(frame.generatedImageUrl);
+      const blob = await response.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `frame_${frame.index}_generated.jpg`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+      toast({ title: `Generated image for frame ${frame.index} downloaded!` });
+    } catch (error) {
+      console.error('Download error:', error);
+      toast({
+        title: 'Download Failed',
+        description: 'Could not download the generated image.',
         variant: 'destructive',
       });
     }
@@ -512,38 +647,66 @@ export const CaptureTray: FC<CaptureTrayProps> = ({ capturedFrames, onClear, onD
                            )}
                          </div>
                       </TableCell>
-                      <TableCell className="p-2">
-                         <div className="space-y-2">
-                           {frameState.isGeneratingPrompt ? (
-                             <div className="space-y-2">
-                               <div className="flex items-center justify-between">
-                                 <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                                   <Loader2 className="h-4 w-4 animate-spin" />
-                                   Generating...
-                                 </div>
-                               </div>
-                             </div>
-                           ) : frame.aiPrompt ? (
-                             <CopyableTextarea
-                               value={frame.aiPrompt}
-                               onChange={(value) => handleTextEdit(frame.index, 'aiPrompt', value)}
-                               placeholder="AI prompt will appear here..."
-                             />
-                           ) : (
-                             <div className="text-sm text-muted-foreground text-center py-4">
-                               AI prompts will be generated automatically after analysis
-                             </div>
-                           )}
-                           {frameState.error && (
-                             <div className="space-y-1">
-                               <div className="text-xs text-red-500 flex items-center gap-1">
-                                 <AlertCircle className="h-3 w-3" />
-                                 {frameState.error}
-                               </div>
-                             </div>
-                           )}
-                         </div>
-                      </TableCell>
+                       <TableCell className="p-2">
+                          <div className="space-y-2">
+                            {frameState.isGeneratingPrompt ? (
+                              <div className="space-y-2">
+                                <div className="flex items-center justify-between">
+                                  <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                                    <Loader2 className="h-4 w-4 animate-spin" />
+                                    Generating...
+                                  </div>
+                                </div>
+                              </div>
+                            ) : frame.aiPrompt ? (
+                              <>
+                                <CopyableTextarea
+                                  value={frame.aiPrompt}
+                                  onChange={(value) => handleTextEdit(frame.index, 'aiPrompt', value)}
+                                  placeholder="AI prompt will appear here..."
+                                  showGenerateButton={true}
+                                  onGenerateImage={() => handleGenerateImage(frame.index, frame.aiPrompt!)}
+                                  isGeneratingImage={frame.isGeneratingImage}
+                                />
+                                {frame.generatedImageUrl && (
+                                  <div className="space-y-2 mt-3">
+                                    <div className="text-xs font-semibold text-muted-foreground">Generated Image:</div>
+                                    <div className="relative group">
+                                      <div className="rounded overflow-hidden border border-border shadow-md bg-muted">
+                                        <img
+                                          src={frame.generatedImageUrl}
+                                          alt={`Generated from frame ${frame.index}`}
+                                          className="w-full h-auto object-cover"
+                                        />
+                                      </div>
+                                      <Button
+                                        variant="secondary"
+                                        size="sm"
+                                        onClick={() => handleDownloadGeneratedImage(frame)}
+                                        className="mt-2 w-full"
+                                      >
+                                        <Download className="mr-2 h-4 w-4" />
+                                        Download Generated
+                                      </Button>
+                                    </div>
+                                  </div>
+                                )}
+                              </>
+                            ) : (
+                              <div className="text-sm text-muted-foreground text-center py-4">
+                                AI prompts will be generated automatically after analysis
+                              </div>
+                            )}
+                            {frameState.error && (
+                              <div className="space-y-1">
+                                <div className="text-xs text-red-500 flex items-center gap-1">
+                                  <AlertCircle className="h-3 w-3" />
+                                  {frameState.error}
+                                </div>
+                              </div>
+                            )}
+                          </div>
+                       </TableCell>
                        <TableCell className="p-2">
                          <div className="flex flex-col items-center gap-1">
                            <Button

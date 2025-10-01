@@ -36,6 +36,8 @@ export interface CapturedFrame {
   aiPrompt?: string;
   isAnalyzing?: boolean;
   isGeneratingPrompt?: boolean;
+  generatedImageUrl?: string;
+  isGeneratingImage?: boolean;
 }
 type DialogState = 'none' | 'deleteFrame' | 'clearAll';
 

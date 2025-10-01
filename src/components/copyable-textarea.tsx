@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useRef } from 'react';
-import { Copy, Check } from 'lucide-react';
+import { Copy, Check, Sparkles, Loader2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 import { useToast } from '@/hooks/use-toast';
@@ -12,6 +12,9 @@ interface CopyableTextareaProps {
   onChange: (value: string) => void;
   placeholder?: string;
   className?: string;
+  showGenerateButton?: boolean;
+  onGenerateImage?: () => void;
+  isGeneratingImage?: boolean;
 }
 
 export const CopyableTextarea: React.FC<CopyableTextareaProps> = ({
@@ -19,6 +22,9 @@ export const CopyableTextarea: React.FC<CopyableTextareaProps> = ({
   onChange,
   placeholder,
   className,
+  showGenerateButton = false,
+  onGenerateImage,
+  isGeneratingImage = false,
 }) => {
   const [copied, setCopied] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -62,33 +68,55 @@ export const CopyableTextarea: React.FC<CopyableTextareaProps> = ({
   };
 
   return (
-    <div className="relative">
-      <Textarea
-        ref={textareaRef}
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-        placeholder={placeholder}
-        className={cn(
-          'min-h-[100px] resize-none overflow-y-auto text-sm pr-12',
-          className
+    <div className="space-y-2">
+      <div className="relative">
+        <Textarea
+          ref={textareaRef}
+          value={value}
+          onChange={(e) => onChange(e.target.value)}
+          placeholder={placeholder}
+          className={cn(
+            'min-h-[100px] resize-none overflow-y-auto text-sm pr-12',
+            className
+          )}
+          style={{ 
+            height: 'auto',
+            minHeight: '100px',
+            maxHeight: 'none',
+          }}
+        />
+        {value && (
+          <Button
+            variant="ghost"
+            size="icon"
+            className="absolute top-2 right-2 h-8 w-8 hover:bg-muted"
+            onClick={handleCopy}
+          >
+            {copied ? (
+              <Check className="h-4 w-4 text-green-500" />
+            ) : (
+              <Copy className="h-4 w-4" />
+            )}
+          </Button>
         )}
-        style={{ 
-          height: 'auto',
-          minHeight: '100px',
-          maxHeight: 'none',
-        }}
-      />
-      {value && (
+      </div>
+      {showGenerateButton && value && (
         <Button
-          variant="ghost"
-          size="icon"
-          className="absolute top-2 right-2 h-8 w-8 hover:bg-muted"
-          onClick={handleCopy}
+          onClick={onGenerateImage}
+          disabled={isGeneratingImage}
+          size="sm"
+          className="w-full"
         >
-          {copied ? (
-            <Check className="h-4 w-4 text-green-500" />
+          {isGeneratingImage ? (
+            <>
+              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+              Generating Image...
+            </>
           ) : (
-            <Copy className="h-4 w-4" />
+            <>
+              <Sparkles className="mr-2 h-4 w-4" />
+              Generate Image
+            </>
           )}
         </Button>
       )}
