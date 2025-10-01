@@ -6,6 +6,8 @@ import { Link } from 'react-router-dom';
 
 export default function Home() {
   const { user, profile, loading, signOut, isAdmin } = useAuth();
+  
+  console.log('Index - Auth state:', { user: !!user, profile, isAdmin });
 
   // Temporarily bypass loading state to test the main app
   // if (loading) {
@@ -35,7 +37,7 @@ export default function Home() {
                 <Button variant="outline" size="sm" asChild>
                   <Link to="/admin">
                     <Settings className="mr-2 h-4 w-4" />
-                    Admin
+                    Admin Panel
                   </Link>
                 </Button>
               )}
