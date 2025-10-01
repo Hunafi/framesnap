@@ -26,11 +26,23 @@ export const CopyableTextarea: React.FC<CopyableTextareaProps> = ({
 
   // Auto-resize textarea to fit content
   useEffect(() => {
-    if (textareaRef.current) {
-      textareaRef.current.style.height = 'auto';
-      textareaRef.current.style.height = `${textareaRef.current.scrollHeight}px`;
+    const textarea = textareaRef.current;
+    if (textarea) {
+      // Reset height to auto to get the correct scrollHeight
+      textarea.style.height = 'auto';
+      // Set height to scrollHeight to fit all content
+      textarea.style.height = `${textarea.scrollHeight}px`;
     }
   }, [value]);
+
+  // Initial resize on mount
+  useEffect(() => {
+    const textarea = textareaRef.current;
+    if (textarea && value) {
+      textarea.style.height = 'auto';
+      textarea.style.height = `${textarea.scrollHeight}px`;
+    }
+  }, []);
 
   const handleCopy = async () => {
     if (!value) return;
@@ -57,12 +69,13 @@ export const CopyableTextarea: React.FC<CopyableTextareaProps> = ({
         onChange={(e) => onChange(e.target.value)}
         placeholder={placeholder}
         className={cn(
-          'min-h-[100px] resize-none overflow-hidden text-sm pr-12',
+          'min-h-[100px] resize-none overflow-y-auto text-sm pr-12',
           className
         )}
         style={{ 
           height: 'auto',
           minHeight: '100px',
+          maxHeight: 'none',
         }}
       />
       {value && (
