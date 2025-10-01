@@ -5,7 +5,7 @@ import { Target, Settings, Loader2 } from 'lucide-react';
 import { Link } from 'react-router-dom';
 
 export default function Home() {
-  const { user, profile, loading, signOut } = useAuth();
+  const { user, profile, loading, signOut, isAdmin } = useAuth();
 
   // Temporarily bypass loading state to test the main app
   // if (loading) {
@@ -31,7 +31,7 @@ export default function Home() {
               <span className="text-sm text-muted-foreground">
                 {profile?.email}
               </span>
-              {profile?.is_admin && (
+              {isAdmin && (
                 <Button variant="outline" size="sm" asChild>
                   <Link to="/admin">
                     <Settings className="mr-2 h-4 w-4" />

@@ -13,15 +13,13 @@ import { UserManagement } from '@/components/user-management';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 
 export default function Admin() {
-  const { user, profile, loading: authLoading, signOut } = useAuth();
+  const { user, profile, loading: authLoading, signOut, isAdmin } = useAuth();
   const { settings, loading: settingsLoading, updateSetting, getSetting } = useAdminSettings();
   const [analyzePrompt, setAnalyzePrompt] = useState('');
   const [generatePrompt, setGeneratePrompt] = useState('');
   const [saving, setSaving] = useState(false);
   const { toast } = useToast();
   const navigate = useNavigate();
-
-  const { isAdmin } = useAuth();
 
   // Redirect if not authenticated or not admin
   if (!authLoading && (!user || !isAdmin)) {
