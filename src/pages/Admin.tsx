@@ -79,7 +79,16 @@ export default function Admin() {
   };
 
   const handleSignOut = async () => {
-    await signOut();
+    const { error } = await signOut();
+    if (error) {
+      toast({
+        title: 'Error signing out',
+        description: error.message,
+        variant: 'destructive',
+      });
+    } else {
+      navigate('/auth');
+    }
   };
 
   return (
@@ -95,11 +104,11 @@ export default function Admin() {
           <span className="text-sm text-muted-foreground">
             {profile?.email}
           </span>
-          <Button variant="outline" size="sm" onClick={() => navigate('/')}>
+          <Button variant="outline" size="sm" onClick={() => navigate('/')} className="text-foreground">
             <ArrowLeft className="mr-2 h-4 w-4" />
             Back to App
           </Button>
-          <Button variant="outline" size="sm" onClick={handleSignOut}>
+          <Button variant="outline" size="sm" onClick={handleSignOut} className="text-foreground">
             Sign Out
           </Button>
         </div>

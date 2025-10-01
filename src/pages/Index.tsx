@@ -2,12 +2,28 @@ import { FrameFlow } from '@/components/frameflow';
 import { useAuth } from '@/hooks/use-auth';
 import { Button } from '@/components/ui/button';
 import { Target, Settings, Loader2 } from 'lucide-react';
-import { Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
+import { useToast } from '@/hooks/use-toast';
 
 export default function Home() {
   const { user, profile, loading, signOut, isAdmin } = useAuth();
+  const navigate = useNavigate();
+  const { toast } = useToast();
   
   console.log('Index - Auth state:', { user: !!user, profile, isAdmin });
+
+  const handleSignOut = async () => {
+    const { error } = await signOut();
+    if (error) {
+      toast({
+        title: 'Error signing out',
+        description: error.message,
+        variant: 'destructive',
+      });
+    } else {
+      navigate('/auth');
+    }
+  };
 
   // Temporarily bypass loading state to test the main app
   // if (loading) {
@@ -41,7 +57,7 @@ export default function Home() {
                   </Link>
                 </Button>
               )}
-              <Button variant="outline" size="sm" onClick={signOut}>
+              <Button variant="outline" size="sm" onClick={handleSignOut} className="text-foreground">
                 Sign Out
               </Button>
             </>
