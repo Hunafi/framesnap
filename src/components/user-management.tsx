@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { useUserRoles, type UserWithRoles, type AppRole } from '@/hooks/use-user-roles';
+import { useUserManagement, type UserProfile, type AppRole } from '@/hooks/use-user-management';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -13,24 +13,28 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
 
 export function UserManagement() {
-  const { users, loading, addRole, removeRole } = useUserRoles();
+  const { users, loading, updateUserRole } = useUserManagement();
   const [processingUser, setProcessingUser] = useState<string | null>(null);
   const { toast } = useToast();
 
-  const handleToggleRole = async (user: UserWithRoles, role: AppRole) => {
+  const handleRoleChange = async (user: UserProfile, newRole: AppRole) => {
     setProcessingUser(user.user_id);
     
-    const hasRole = user.roles.includes(role);
-    const result = hasRole 
-      ? await removeRole(user.user_id, role)
-      : await addRole(user.user_id, role);
+    const result = await updateUserRole(user.user_id, newRole);
 
     if (result.success) {
       toast({
-        title: hasRole ? 'Role removed' : 'Role added',
-        description: `${role} role ${hasRole ? 'removed from' : 'granted to'} ${user.email}`,
+        title: 'Role updated',
+        description: `${user.email} is now a ${newRole}`,
       });
     } else {
       toast({
@@ -64,9 +68,9 @@ export function UserManagement() {
           <TableHeader>
             <TableRow>
               <TableHead>Email</TableHead>
-              <TableHead>Roles</TableHead>
+              <TableHead>Current Role</TableHead>
               <TableHead>Joined</TableHead>
-              <TableHead className="text-right">Actions</TableHead>
+              <TableHead className="text-right">Change Role</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -74,36 +78,34 @@ export function UserManagement() {
               <TableRow key={user.user_id}>
                 <TableCell className="font-medium">{user.email}</TableCell>
                 <TableCell>
-                  <div className="flex gap-2">
-                    {user.roles.map((role) => (
-                      <Badge
-                        key={role}
-                        variant={role === 'admin' ? 'default' : 'secondary'}
-                      >
-                        {role === 'admin' && <Shield className="mr-1 h-3 w-3" />}
-                        {role}
-                      </Badge>
-                    ))}
-                  </div>
+                  <Badge
+                    variant={user.role === 'admin' ? 'default' : 'secondary'}
+                  >
+                    {user.role === 'admin' && <Shield className="mr-1 h-3 w-3" />}
+                    {user.role}
+                  </Badge>
                 </TableCell>
                 <TableCell>
                   {new Date(user.created_at).toLocaleDateString()}
                 </TableCell>
                 <TableCell className="text-right">
-                  <Button
-                    variant={user.roles.includes('admin') ? 'destructive' : 'default'}
-                    size="sm"
-                    onClick={() => handleToggleRole(user, 'admin')}
+                  <Select
+                    value={user.role}
+                    onValueChange={(value: AppRole) => handleRoleChange(user, value)}
                     disabled={processingUser === user.user_id}
                   >
-                    {processingUser === user.user_id ? (
-                      <Loader2 className="h-4 w-4 animate-spin" />
-                    ) : user.roles.includes('admin') ? (
-                      'Remove Admin'
-                    ) : (
-                      'Make Admin'
-                    )}
-                  </Button>
+                    <SelectTrigger className="w-32">
+                      {processingUser === user.user_id ? (
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                      ) : (
+                        <SelectValue />
+                      )}
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="user">User</SelectItem>
+                      <SelectItem value="admin">Admin</SelectItem>
+                    </SelectContent>
+                  </Select>
                 </TableCell>
               </TableRow>
             ))}
